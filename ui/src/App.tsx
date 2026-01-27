@@ -86,11 +86,10 @@ function HolonNode(props: NodeProps<UiNodeData>): JSX.Element {
   const canAiEdit = data.nodeId.startsWith("node:") || data.nodeId.startsWith("spec:");
   const canDescribe = data.nodeId.startsWith("node:") || data.nodeId.startsWith("spec:");
 
-  const stop = (e: { stopPropagation: () => void; preventDefault?: () => void }): void => {
+  const stop = (e: { stopPropagation: () => void }): void => {
     // React Flow uses pointer events for drag/pan. Stop those at the source so
     // button clicks aren't eaten by a drag start.
     e.stopPropagation();
-    e.preventDefault?.();
   };
 
   const inputs = data.ports.filter((p) => p.direction === "input");
@@ -144,7 +143,8 @@ function HolonNode(props: NodeProps<UiNodeData>): JSX.Element {
               onPointerDown={stop}
               onPointerDownCapture={stop}
               onMouseDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
+              onClickCapture={(e) => e.stopPropagation()}
+              onPointerUp={(e) => {
                 e.stopPropagation();
                 data.onAi(data.nodeId);
               }}
@@ -162,7 +162,8 @@ function HolonNode(props: NodeProps<UiNodeData>): JSX.Element {
               onPointerDown={stop}
               onPointerDownCapture={stop}
               onMouseDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
+              onClickCapture={(e) => e.stopPropagation()}
+              onPointerUp={(e) => {
                 e.stopPropagation();
                 data.onDescribe(data.nodeId);
               }}
@@ -446,6 +447,8 @@ export default function App(): JSX.Element {
           onNodeDragStop={onNodeDragStop}
           onConnect={onConnect}
           nodeTypes={{ holon: HolonNode }}
+          noDragClassName="nodrag"
+          noPanClassName="nopan"
           fitView
         >
           <Background />
@@ -467,6 +470,7 @@ export default function App(): JSX.Element {
               onChange={(e) => setAiInstruction(e.target.value)}
               onPointerDown={(e) => e.stopPropagation()}
               onPointerDownCapture={(e) => e.stopPropagation()}
+              onClickCapture={(e) => e.stopPropagation()}
               placeholder={
                 aiModalNodeId.startsWith("spec:")
                   ? "Describe what you want this node to do / how to configure it (Copilot will edit spec(...))."
@@ -480,6 +484,7 @@ export default function App(): JSX.Element {
                 onPointerDown={(e) => e.stopPropagation()}
                 onPointerDownCapture={(e) => e.stopPropagation()}
                 onMouseDown={(e) => e.stopPropagation()}
+                onClickCapture={(e) => e.stopPropagation()}
                 onClick={() => {
                   setAiModalNodeId(null);
                   setAiInstruction("");
@@ -493,6 +498,7 @@ export default function App(): JSX.Element {
                 onPointerDown={(e) => e.stopPropagation()}
                 onPointerDownCapture={(e) => e.stopPropagation()}
                 onMouseDown={(e) => e.stopPropagation()}
+                onClickCapture={(e) => e.stopPropagation()}
                 disabled={!aiInstruction.trim()}
                 onClick={() => {
                   postToExtension({ type: "ui.node.aiRequest", nodeId: aiModalNodeId, instruction: aiInstruction });
