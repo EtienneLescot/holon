@@ -1,0 +1,225 @@
+"""Holon browser dev server (UI-first without VS Code).
+
+This module provides a tiny HTTP API around the Holon core services so the React
+UI can be debugged in a normal browser with Vite hot reload.
+
+Design goals:
+- Keep "Code is Truth": the API works on a single Python source string.
+- No extra dependencies (stdlib only).
+- CORS-friendly for localhost dev.
+
+Endpoints (JSON):
+- GET  /api/source
+- PUT  /api/source
+- POST /api/parse
+- POST /api/add_spec_node
+- POST /api/add_link
+- POST /api/patch_node
+
+Run:
+- poetry run python -m holon.devserver --file core/examples/demo.holon.py
+
+Note: This is a dev utility, not a production server.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
+from typing import Any
+
+from holon.services.graph_parser import parse_graph
+from holon.services.patcher import add_link, add_spec_node, patch_node
+
+
+class _State:
+    def __init__(self, *, file_path: Path | None) -> None:
+        self.file_path = file_path
+        self.source: str = ""
+
+    def load(self) -> None:
+        if self.file_path is None:
+            return
+        self.source = self.file_path.read_text(encoding="utf8")
+
+    def save(self) -> None:
+        if self.file_path is None:
+            return
+        self.file_path.write_text(self.source, encoding="utf8")
+
+
+def main(argv: list[str] | None = None) -> None:
+    """Entry point for `python -m holon.devserver`."""
+
+    parser = argparse.ArgumentParser(description="Holon UI browser dev server")
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Host to bind (default: 127.0.0.1)",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8787,
+        help="Port to bind (default: 8787)",
+    )
+    parser.add_argument(
+        "--file",
+        type=str,
+        default=None,
+        help="Optional .holon.py file to load/save (default: in-memory)",
+    )
+    args = parser.parse_args(argv)
+
+    file_path = Path(args.file).resolve() if args.file else None
+    if file_path is not None and not file_path.exists():
+        raise SystemExit(f"File not found: {file_path}")
+
+    state = _State(file_path=file_path)
+    state.load()
+
+    handler = _make_handler(state)
+    server = HTTPServer((args.host, args.port), handler)
+
+    sys.stderr.write(f"Holon devserver listening on http://{args.host}:{args.port}\n")
+    if file_path is not None:
+        sys.stderr.write(f"Using file: {file_path}\n")
+    server.serve_forever()
+
+
+def _make_handler(state: _State) -> type[BaseHTTPRequestHandler]:
+    class Handler(BaseHTTPRequestHandler):
+        def _send_json(self, status: int, payload: Any) -> None:
+            body = json.dumps(payload, ensure_ascii=False).encode("utf8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Headers", "content-type")
+            self.send_header("Access-Control-Allow-Methods", "GET,POST,PUT,OPTIONS")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _read_json(self) -> dict[str, Any]:
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            raw = self.rfile.read(length) if length > 0 else b"{}"
+            try:
+                parsed = json.loads(raw.decode("utf8"))
+            except Exception as exc:  # noqa: BLE001
+                raise ValueError(f"Invalid JSON: {exc}") from exc
+            if not isinstance(parsed, dict):
+                raise ValueError("Body must be a JSON object")
+            return parsed
+
+        def do_OPTIONS(self) -> None:  # noqa: N802
+            self.send_response(204)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Headers", "content-type")
+            self.send_header("Access-Control-Allow-Methods", "GET,POST,PUT,OPTIONS")
+            self.end_headers()
+
+        def do_GET(self) -> None:  # noqa: N802
+            if self.path == "/api/source":
+                self._send_json(200, {"source": state.source})
+                return
+            self._send_json(404, {"error": "not_found"})
+
+        def do_PUT(self) -> None:  # noqa: N802
+            if self.path == "/api/source":
+                try:
+                    body = self._read_json()
+                    source = body.get("source")
+                    if not isinstance(source, str):
+                        raise ValueError("source must be a string")
+                    state.source = source
+                    state.save()
+                    self._send_json(200, {"ok": True})
+                except Exception as exc:  # noqa: BLE001
+                    self._send_json(400, {"error": str(exc)})
+                return
+            self._send_json(404, {"error": "not_found"})
+
+        def do_POST(self) -> None:  # noqa: N802
+            try:
+                body = self._read_json()
+
+                if self.path == "/api/parse":
+                    graph = parse_graph(state.source)
+                    self._send_json(200, {"graph": graph.model_dump()})
+                    return
+
+                if self.path == "/api/add_spec_node":
+                    node_id = body.get("node_id")
+                    node_type = body.get("node_type")
+                    label = body.get("label")
+                    props = body.get("props")
+                    if not isinstance(node_id, str) or not isinstance(node_type, str):
+                        raise ValueError("node_id and node_type must be strings")
+                    if label is not None and not isinstance(label, str):
+                        raise ValueError("label must be a string or null")
+                    if props is not None and not isinstance(props, dict):
+                        raise ValueError("props must be an object or null")
+
+                    state.source = add_spec_node(
+                        state.source,
+                        node_id=node_id,
+                        node_type=node_type,
+                        label=label,
+                        props=props,
+                    )
+                    state.save()
+                    self._send_json(200, {"source": state.source})
+                    return
+
+                if self.path == "/api/add_link":
+                    workflow_name = body.get("workflow_name")
+                    source_node_id = body.get("source_node_id")
+                    source_port = body.get("source_port")
+                    target_node_id = body.get("target_node_id")
+                    target_port = body.get("target_port")
+
+                    if not all(isinstance(x, str) for x in [workflow_name, source_node_id, source_port, target_node_id, target_port]):
+                        raise ValueError("workflow_name/source_node_id/source_port/target_node_id/target_port must be strings")
+
+                    state.source = add_link(
+                        state.source,
+                        workflow_name=workflow_name,
+                        source_node_id=source_node_id,
+                        source_port=source_port,
+                        target_node_id=target_node_id,
+                        target_port=target_port,
+                    )
+                    state.save()
+                    self._send_json(200, {"source": state.source})
+                    return
+
+                if self.path == "/api/patch_node":
+                    node_name = body.get("node_name")
+                    new_function_code = body.get("new_function_code")
+                    if not isinstance(node_name, str) or not isinstance(new_function_code, str):
+                        raise ValueError("node_name and new_function_code must be strings")
+                    state.source = patch_node(
+                        state.source,
+                        node_name=node_name,
+                        new_function_code=new_function_code,
+                    )
+                    state.save()
+                    self._send_json(200, {"source": state.source})
+                    return
+
+                self._send_json(404, {"error": "not_found"})
+            except Exception as exc:  # noqa: BLE001
+                self._send_json(400, {"error": str(exc)})
+
+        def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
+            # Keep devserver quiet.
+            return
+
+    return Handler
+
+
+if __name__ == "__main__":
+    main()

@@ -11,6 +11,16 @@ declare function acquireVsCodeApi(): unknown;
 let cachedApi: VsCodeApi | undefined;
 let triedAcquire = false;
 
+type BrowserBridge = {
+  postMessageFromUi: (message: ToExtensionMessage) => void;
+};
+
+let browserBridge: BrowserBridge | undefined;
+
+export function registerBrowserBridge(bridge: BrowserBridge): void {
+  browserBridge = bridge;
+}
+
 export function getVsCodeApi(): VsCodeApi | undefined {
   if (cachedApi) {
     return cachedApi;
@@ -36,7 +46,8 @@ export function getVsCodeApi(): VsCodeApi | undefined {
 export function postToExtension(message: ToExtensionMessage): void {
   const api = getVsCodeApi();
   if (!api) {
-    // Browser mode: no-op.
+    // Browser mode: forward to the dev bridge if present.
+    browserBridge?.postMessageFromUi(message);
     return;
   }
   api.postMessage(message);
