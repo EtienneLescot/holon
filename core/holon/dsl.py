@@ -120,3 +120,47 @@ def workflow(
 # Convenience types for end-users.
 NodeFn = Callable[..., Any]
 AsyncNodeFn = Callable[..., Awaitable[Any]]
+
+
+def spec(
+    node_id: str,
+    /,
+    *,
+    type: str,  # noqa: A002 - matches the DSL keyword argument
+    label: str | None = None,
+    props: dict[str, Any] | None = None,
+) -> None:
+    """Declare a metadata-defined node in a code-first workflow.
+
+    This is a Phase 5 stub used primarily as a stable surface for the parser
+    and for IDE auto-complete. It has no runtime behavior.
+
+    Args:
+        node_id: Stable node id (recommended prefix: ``spec:``).
+        type: Node type identifier (e.g. ``langchain.agent``).
+        label: Optional display label.
+        props: Optional JSON-serializable configuration.
+    """
+
+    return None
+
+
+def link(
+    source_node_id: str,
+    source_port: str,
+    target_node_id: str,
+    target_port: str,
+    /,
+) -> None:
+    """Declare a link between two node ports.
+
+    This is a Phase 5 stub used by the parser. It has no runtime behavior.
+
+    Args:
+        source_node_id: Source node id.
+        source_port: Source port id.
+        target_node_id: Target node id.
+        target_port: Target port id.
+    """
+
+    return None

@@ -241,6 +241,50 @@ export class RpcClient {
     return result["source"];
   }
 
+  public async addSpecNode(source: string, nodeId: string, nodeType: string, label: string | null, props: Record<string, unknown> | null): Promise<string> {
+    const response = await this.request({
+      method: "add_spec_node",
+      params: { source, node_id: nodeId, node_type: nodeType, label, props },
+    });
+    if (response.error) {
+      throw new Error(response.error.message);
+    }
+    const result = response.result as unknown;
+    if (!isObject(result) || typeof result["source"] !== "string") {
+      throw new Error("Invalid add_spec_node response type");
+    }
+    return result["source"];
+  }
+
+  public async addLink(
+    source: string,
+    workflowName: string,
+    sourceNodeId: string,
+    sourcePort: string,
+    targetNodeId: string,
+    targetPort: string
+  ): Promise<string> {
+    const response = await this.request({
+      method: "add_link",
+      params: {
+        source,
+        workflow_name: workflowName,
+        source_node_id: sourceNodeId,
+        source_port: sourcePort,
+        target_node_id: targetNodeId,
+        target_port: targetPort,
+      },
+    });
+    if (response.error) {
+      throw new Error(response.error.message);
+    }
+    const result = response.result as unknown;
+    if (!isObject(result) || typeof result["source"] !== "string") {
+      throw new Error("Invalid add_link response type");
+    }
+    return result["source"];
+  }
+
   public async stop(): Promise<void> {
     try {
       await this.request({ method: "shutdown" });

@@ -111,8 +111,14 @@ export const UiNodeCreatedSchema = z.object({
     id: z.string(),
     type: z.string(),
     label: z.string(),
-    inputs: z.array(z.object({ id: z.string(), kind: PortKindSchema.optional(), label: z.string().optional(), multi: z.boolean().optional() })),
-    outputs: z.array(z.object({ id: z.string(), kind: PortKindSchema.optional(), label: z.string().optional(), multi: z.boolean().optional() })),
+    inputs: z
+      .array(z.object({ id: z.string(), kind: PortKindSchema.optional(), label: z.string().optional(), multi: z.boolean().optional() }))
+      .optional()
+      .default([]),
+    outputs: z
+      .array(z.object({ id: z.string(), kind: PortKindSchema.optional(), label: z.string().optional(), multi: z.boolean().optional() }))
+      .optional()
+      .default([]),
     props: z.record(z.unknown()).optional(),
   }),
   position: PositionSchema.optional(),

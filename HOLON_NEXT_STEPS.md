@@ -50,27 +50,33 @@ We want “real nodes” with ports/connectors, starting with a **LangChain Agen
 
 ## Phase 5.0 — Define the node/port model (shared contract)
 
-Goal: make nodes more than decorated functions.
+Goal: make nodes more than decorated functions, *without* introducing a second "source of truth".
 
-Proposed minimal model (stored as metadata, not in code):
-- `NodeSpec`:
+Key decision (aligned with the blueprint):
+- **Code is Truth** for the graph topology (nodes + links).
+- JSON is allowed **only for UI-only state** (positions/layout), not for the workflow itself.
+
+Minimal shared model (conceptual contract):
+- Node has:
   - `id`, `type`, `label`
-  - `inputs[]` / `outputs[]` (typed ports)
   - `props` (JSON-serializable config)
-- `EdgeSpec`:
+- Edge has:
   - `sourceNodeId`, `sourcePort`
   - `targetNodeId`, `targetPort`
 
-Storage (metadata):
-- `.holon/graph.json` (or `.holon/nodes.json` + `.holon/edges.json`)
-  - Keeps code clean, easy to diff/review.
+Storage:
+- Positions: `.holon/positions.json` (UI-only)
+- Graph topology: **encoded in the `.holon.py` file** via a tiny DSL (`spec()` + `link()`), parsed by LibCST.
 
 ## Phase 5.1 — UI: linking nodes (connectors)
 
 Goal: the user can create links between ports.
+
+Implementation (code-first):
 - Add visible handles for ports.
 - Implement connect interaction (React Flow `onConnect`).
-- Persist edges in `.holon/graph.json` (same as positions).
+- On connect, the extension calls core patcher to insert a `link(...)` statement into the target `@workflow`.
+- Then re-parse the Python file and update the UI.
 
 ## Phase 5.2 — First real node type: LangChain AI Agent
 
@@ -93,6 +99,12 @@ Node: `langchain.agent`
 Notes:
 - We should not re-invent agent logic: implement this by mapping config to LangChain.
 - First milestone is **configuration + wiring** (no full execution engine required yet).
+
+Code encoding (Variant A):
+- Spec nodes are declared at module level:
+  - `spec("spec:agent:...", type="langchain.agent", label="LangChain Agent", props={...})`
+- Links are declared inside a workflow:
+  - `link("spec:llm:...", "llm", "spec:agent:...", "llm")`
 
 ## Phase 5.3 — Supporting node types (stubs first)
 

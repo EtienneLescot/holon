@@ -19,6 +19,8 @@ from typing import Any
 from pydantic import BaseModel, ValidationError
 
 from holon.services.graph_parser import parse_graph
+from holon.services.patcher import add_link as add_link_source
+from holon.services.patcher import add_spec_node as add_spec_node_source
 from holon.services.patcher import patch_node as patch_node_source
 from holon.services.patcher import rename_node as rename_node_source
 
@@ -42,6 +44,23 @@ class _PatchNodeParams(BaseModel):
     source: str
     node_name: str
     new_function_code: str
+
+
+class _AddSpecNodeParams(BaseModel):
+    source: str
+    node_id: str
+    node_type: str
+    label: str | None = None
+    props: dict[str, Any] | None = None
+
+
+class _AddLinkParams(BaseModel):
+    source: str
+    workflow_name: str
+    source_node_id: str
+    source_port: str
+    target_node_id: str
+    target_port: str
 
 
 def main() -> None:
@@ -120,6 +139,35 @@ def handle_request(request: Any) -> dict[str, Any]:
                 params.source,
                 node_name=params.node_name,
                 new_function_code=params.new_function_code,
+            )
+            return {"id": request_id, "result": {"source": updated}}
+        except Exception as exc:  # noqa: BLE001 - return structured RPC errors
+            return {"id": request_id, "error": {"message": _format_error(exc)}}
+
+    if method == "add_spec_node":
+        try:
+            params = _parse_params(request.get("params"), _AddSpecNodeParams)
+            updated = add_spec_node_source(
+                params.source,
+                node_id=params.node_id,
+                node_type=params.node_type,
+                label=params.label,
+                props=params.props,
+            )
+            return {"id": request_id, "result": {"source": updated}}
+        except Exception as exc:  # noqa: BLE001 - return structured RPC errors
+            return {"id": request_id, "error": {"message": _format_error(exc)}}
+
+    if method == "add_link":
+        try:
+            params = _parse_params(request.get("params"), _AddLinkParams)
+            updated = add_link_source(
+                params.source,
+                workflow_name=params.workflow_name,
+                source_node_id=params.source_node_id,
+                source_port=params.source_port,
+                target_node_id=params.target_node_id,
+                target_port=params.target_port,
             )
             return {"id": request_id, "result": {"source": updated}}
         except Exception as exc:  # noqa: BLE001 - return structured RPC errors

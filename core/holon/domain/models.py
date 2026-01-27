@@ -32,8 +32,13 @@ class Node(BaseModel):
 
     id: str = Field(..., description="Stable unique identifier")
     name: str = Field(..., description="Function name in source code")
-    kind: Literal["node", "workflow"] = Field(..., description="Node role")
+    kind: Literal["node", "workflow", "spec"] = Field(..., description="Node role")
     position: Position | None = Field(default=None, description="Optional canvas position")
+
+    # Optional extended metadata for "spec" nodes.
+    label: str | None = Field(default=None, description="Optional display label")
+    node_type: str | None = Field(default=None, description="Optional node type (e.g. 'langchain.agent')")
+    props: dict[str, Any] | None = Field(default=None, description="Optional JSON-serializable configuration")
 
 
 class Edge(BaseModel):
@@ -43,6 +48,11 @@ class Edge(BaseModel):
 
     source: str = Field(..., description="Source node id")
     target: str = Field(..., description="Target node id")
+
+    # Optional port-level wiring.
+    source_port: str | None = Field(default=None, description="Optional source port id")
+    target_port: str | None = Field(default=None, description="Optional target port id")
+    kind: Literal["code", "link"] | None = Field(default=None, description="Optional edge kind")
 
 
 class Graph(BaseModel):

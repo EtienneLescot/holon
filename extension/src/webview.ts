@@ -87,9 +87,6 @@ export class HolonPanel {
   private lastGraph: CoreGraph | undefined;
   private hasSentGraph = false;
 
-  private metaNodes: NodeSpec[] = [];
-  private metaEdges: EdgeSpec[] = [];
-
   private readonly parseTimers = new Map<string, NodeJS.Timeout>();
   private readonly parseVersions = new Map<string, number>();
 
@@ -262,28 +259,28 @@ export class HolonPanel {
     const sourcePort = edge.sourcePort ?? "output";
     const targetPort = edge.targetPort ?? "input";
 
-    const spec: EdgeSpec = {
-      sourceNodeId: edge.source,
-      sourcePort,
-      targetNodeId: edge.target,
-      targetPort,
-    };
+    const targetUri = this.lastHolonDocumentUri;
+    const doc = await vscode.workspace.openTextDocument(targetUri);
+    const editor =
+      vscode.window.activeTextEditor?.document.uri.toString() === targetUri.toString()
+        ? vscode.window.activeTextEditor
+        : await vscode.window.showTextDocument(doc, { preview: false, preserveFocus: true });
 
-    // Deduplicate in-memory.
-    const key = `${spec.sourceNodeId}:${spec.sourcePort}->${spec.targetNodeId}:${spec.targetPort}`;
-    const existingKeys = new Set(
-      this.metaEdges.map((e) => `${e.sourceNodeId}:${e.sourcePort}->${e.targetNodeId}:${e.targetPort}`)
-    );
-    if (!existingKeys.has(key)) {
-      this.metaEdges = [...this.metaEdges, spec];
+    const source = doc.getText();
+    const rpc = await this.ensureRpc();
+    const workflowName = pickWorkflowName(this.lastGraph);
+    if (!workflowName) {
+      this.output.appendLine("edge add warning: no workflow found");
+      return;
     }
+    const updated = await rpc.addLink(source, workflowName, edge.source, sourcePort, edge.target, targetPort);
 
-    // Persist to store.
-    await this.persistGraphNow(this.lastHolonDocumentUri);
-
-    // Re-emit graph with updated edges.
-    if (this.lastGraph) {
-      this.postGraphUpdate(this.lastGraph);
+    const fullRange = new vscode.Range(doc.positionAt(0), doc.positionAt(source.length));
+    const ok = await editor.edit((editBuilder) => {
+      editBuilder.replace(fullRange, updated);
+    });
+    if (!ok) {
+      throw new Error("Editor rejected the edit");
     }
   }
 
@@ -311,44 +308,28 @@ export class HolonPanel {
       return;
     }
 
-    const spec: NodeSpec = {
-      id: node.id,
-      type: node.type,
-      label: node.label,
-      inputs: node.inputs.map((p) => ({
-        id: p.id,
-        ...(p.kind ? { kind: p.kind } : {}),
-        ...(p.label ? { label: p.label } : {}),
-        ...(typeof p.multi === "boolean" ? { multi: p.multi } : {}),
-      })),
-      outputs: node.outputs.map((p) => ({
-        id: p.id,
-        ...(p.kind ? { kind: p.kind } : {}),
-        ...(p.label ? { label: p.label } : {}),
-        ...(typeof p.multi === "boolean" ? { multi: p.multi } : {}),
-      })),
-      props: node.props ?? {},
-    };
+    const targetUri = this.lastHolonDocumentUri;
+    const doc = await vscode.workspace.openTextDocument(targetUri);
+    const editor =
+      vscode.window.activeTextEditor?.document.uri.toString() === targetUri.toString()
+        ? vscode.window.activeTextEditor
+        : await vscode.window.showTextDocument(doc, { preview: false, preserveFocus: true });
 
-    const existing = new Set(this.metaNodes.map((n) => n.id));
-    if (!existing.has(spec.id)) {
-      this.metaNodes = [...this.metaNodes, spec];
+    const source = doc.getText();
+    const rpc = await this.ensureRpc();
+    const updated = await rpc.addSpecNode(source, node.id, node.type, node.label ?? null, node.props ?? null);
+
+    const fullRange = new vscode.Range(doc.positionAt(0), doc.positionAt(source.length));
+    const ok = await editor.edit((editBuilder) => {
+      editBuilder.replace(fullRange, updated);
+    });
+    if (!ok) {
+      throw new Error("Editor rejected the edit");
     }
 
     if (position) {
-      this.positions.set(spec.id, { x: position.x, y: position.y });
+      this.positions.set(node.id, { x: position.x, y: position.y });
       this.schedulePersistPositions();
-    }
-
-    await this.persistGraphNow(this.lastHolonDocumentUri);
-
-    if (this.lastGraph) {
-      this.postGraphUpdate(this.lastGraph);
-    } else {
-      // If we haven't parsed yet, still show the metadata node(s).
-      this.hasSentGraph = true;
-      const merged = this.buildMergedGraph({ nodes: [], edges: [] });
-      this.postMessage({ type: "graph.init", nodes: merged.nodes, edges: merged.edges });
     }
   }
 
@@ -549,17 +530,6 @@ export class HolonPanel {
         this.output.appendLine(`positions load warning: ${message}`);
       }
 
-      // Load persisted graph metadata (nodes + edges).
-      try {
-        const meta = await this.loadPersistedGraph(doc.uri);
-        this.metaNodes = meta.nodes;
-        this.metaEdges = meta.edges;
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        this.output.appendLine(`graph metadata load warning: ${message}`);
-        this.metaNodes = [];
-        this.metaEdges = [];
-      }
     }
 
     try {
@@ -639,44 +609,29 @@ export class HolonPanel {
 
     // 1) Nodes from code.
     for (const n of graph.nodes) {
+      const merged = this.mergePosition(n);
+      const kind = merged.kind;
+      const label = (merged as unknown as { label?: string | null }).label;
+      const nodeType = (merged as unknown as { node_type?: string | null; nodeType?: string | null }).node_type ?? (merged as unknown as { nodeType?: string | null }).nodeType;
+      const nodeTypeValue = typeof nodeType === "string" ? nodeType : undefined;
       nodes.push({
-        ...this.mergePosition(n),
-        kind: n.kind,
-        label: `${n.kind}: ${n.name}`,
-        ports: defaultPortsForCodeNode(n),
+        ...merged,
+        kind: kind as "node" | "workflow" | "spec",
+        label: typeof label === "string" ? label : `${kind}: ${merged.name}`,
+        ...(nodeTypeValue ? { nodeType: nodeTypeValue } : {}),
+        ports: portsForParsedNode({ kind: kind as "node" | "workflow" | "spec", ...(nodeTypeValue ? { nodeType: nodeTypeValue } : {}) }),
       });
     }
 
-    // 2) Metadata-only nodes.
-    const seenIds = new Set(nodes.map((n) => n.id));
-    for (const s of this.metaNodes) {
-      if (seenIds.has(s.id)) {
-        // Future: allow overriding label/ports for code nodes.
-        continue;
-      }
-      nodes.push({
-        id: s.id,
-        name: s.label,
-        kind: "spec",
-        position: this.mergePositionById(s.id, null) ?? null,
-        label: s.label,
-        nodeType: s.type,
-        ports: portsFromNodeSpec(s),
-      });
-    }
-
-    // 3) Edges: code-derived + metadata links.
+    // 2) Edges from code (including explicit link() edges).
     const edges: Array<{ source: string; target: string; sourcePort?: string | null; targetPort?: string | null; kind?: "code" | "link" }> = [];
-    for (const e of graph.edges) {
-      edges.push({ source: e.source, target: e.target, kind: "code" });
-    }
-    for (const e of this.metaEdges) {
+    for (const e of graph.edges as unknown as Array<{ source: string; target: string; source_port?: string | null; target_port?: string | null; kind?: "code" | "link" | null }>) {
       edges.push({
-        source: e.sourceNodeId,
-        target: e.targetNodeId,
-        sourcePort: e.sourcePort,
-        targetPort: e.targetPort,
-        kind: "link",
+        source: e.source,
+        target: e.target,
+        sourcePort: e.source_port ?? null,
+        targetPort: e.target_port ?? null,
+        kind: e.kind ?? "code",
       });
     }
 
@@ -776,70 +731,6 @@ export class HolonPanel {
     await vscode.workspace.fs.writeFile(storeUri, Buffer.from(json, "utf8"));
   }
 
-  private graphStorePath(): vscode.Uri | undefined {
-    if (!this.workspaceRoot) {
-      return undefined;
-    }
-    return vscode.Uri.joinPath(this.workspaceRoot, ".holon", "graph.json");
-  }
-
-  private async loadPersistedGraph(docUri: vscode.Uri): Promise<{ nodes: NodeSpec[]; edges: EdgeSpec[] }> {
-    if (!this.workspaceRoot) {
-      return { nodes: [], edges: [] };
-    }
-    const rel = vscode.workspace.asRelativePath(docUri, false);
-    const store = await this.readGraphStore();
-    return store.files[rel] ?? { nodes: [], edges: [] };
-  }
-
-  private async persistGraphNow(docUri: vscode.Uri): Promise<void> {
-    if (!this.workspaceRoot) {
-      this.output.appendLine("graph save skipped: no workspace root");
-      return;
-    }
-    const rel = vscode.workspace.asRelativePath(docUri, false);
-    const store = await this.readGraphStore();
-    store.files[rel] = { nodes: this.metaNodes, edges: this.metaEdges };
-    await this.writeGraphStore(store);
-    this.output.appendLine(`graph saved: ${rel}`);
-  }
-
-  private async readGraphStore(): Promise<{ version: 1; files: Record<string, { nodes: NodeSpec[]; edges: EdgeSpec[] }> }> {
-    const storeUri = this.graphStorePath();
-    if (!storeUri) {
-      return { version: 1, files: {} };
-    }
-
-    try {
-      const bytes = await vscode.workspace.fs.readFile(storeUri);
-      const text = Buffer.from(bytes).toString("utf8");
-      const parsed = JSON.parse(text) as unknown;
-      if (!isGraphStore(parsed)) {
-        return { version: 1, files: {} };
-      }
-      return parsed;
-    } catch {
-      return { version: 1, files: {} };
-    }
-  }
-
-  private async writeGraphStore(store: { version: 1; files: Record<string, { nodes: NodeSpec[]; edges: EdgeSpec[] }> }): Promise<void> {
-    const storeUri = this.graphStorePath();
-    if (!storeUri || !this.workspaceRoot) {
-      return;
-    }
-
-    // Ensure .holon dir exists.
-    const dir = vscode.Uri.joinPath(this.workspaceRoot, ".holon");
-    try {
-      await vscode.workspace.fs.stat(dir);
-    } catch {
-      await vscode.workspace.fs.createDirectory(dir);
-    }
-
-    const json = JSON.stringify(store, null, 2);
-    await vscode.workspace.fs.writeFile(storeUri, Buffer.from(json, "utf8"));
-  }
 
   private getHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
     const nonce = getNonce();
@@ -1038,93 +929,50 @@ type PortSpec = {
   multi?: boolean | undefined;
 };
 
-type NodeSpec = {
-  id: string;
-  type: string;
-  label: string;
-  inputs?: Array<{ id: string; kind?: PortKind; label?: string; multi?: boolean }>;
-  outputs?: Array<{ id: string; kind?: PortKind; label?: string; multi?: boolean }>;
-  props?: Record<string, unknown>;
-};
-
-type EdgeSpec = { sourceNodeId: string; sourcePort: string; targetNodeId: string; targetPort: string };
-
-function portsFromNodeSpec(node: NodeSpec): PortSpec[] {
-  const inputs = (node.inputs ?? []).map((p) => ({
-    id: p.id,
-    direction: "input" as const,
-    kind: p.kind,
-    label: p.label,
-    multi: p.multi,
-  }));
-  const outputs = (node.outputs ?? []).map((p) => ({
-    id: p.id,
-    direction: "output" as const,
-    kind: p.kind,
-    label: p.label,
-    multi: p.multi,
-  }));
-  return [...inputs, ...outputs];
-}
-
-function defaultPortsForCodeNode(node: CoreNode): PortSpec[] {
-  if (node.kind === "workflow") {
+function portsForParsedNode(input: { kind: "node" | "workflow" | "spec"; nodeType?: string }): PortSpec[] {
+  if (input.kind === "workflow") {
     return [{ id: "start", direction: "output", kind: "control", label: "start" }];
   }
-  return [
-    { id: "input", direction: "input", kind: "data", label: "input" },
-    { id: "output", direction: "output", kind: "data", label: "output" },
-  ];
+  if (input.kind === "node") {
+    return [
+      { id: "input", direction: "input", kind: "data", label: "input" },
+      { id: "output", direction: "output", kind: "data", label: "output" },
+    ];
+  }
+  // Spec nodes: infer ports by type (keeps code concise; ports are UI contract).
+  switch (input.nodeType) {
+    case "langchain.agent":
+      return [
+        { id: "input", direction: "input", kind: "data", label: "input" },
+        { id: "llm", direction: "input", kind: "llm", label: "llm" },
+        { id: "memory", direction: "input", kind: "memory", label: "memory" },
+        { id: "tools", direction: "input", kind: "tool", label: "tools", multi: true },
+        { id: "outputParser", direction: "input", kind: "parser", label: "parser" },
+        { id: "output", direction: "output", kind: "data", label: "output" },
+      ];
+    case "llm.model":
+      return [{ id: "llm", direction: "output", kind: "llm", label: "llm" }];
+    case "memory.buffer":
+      return [{ id: "memory", direction: "output", kind: "memory", label: "memory" }];
+    case "tool.example":
+      return [{ id: "tool", direction: "output", kind: "tool", label: "tool" }];
+    case "parser.json":
+      return [{ id: "parser", direction: "output", kind: "parser", label: "parser" }];
+    default:
+      return [
+        { id: "input", direction: "input", kind: "data", label: "input" },
+        { id: "output", direction: "output", kind: "data", label: "output" },
+      ];
+  }
 }
 
-function isGraphStore(
-  value: unknown
-): value is { version: 1; files: Record<string, { nodes: NodeSpec[]; edges: EdgeSpec[] }> } {
-  if (typeof value !== "object" || value === null) {
-    return false;
+function pickWorkflowName(graph: CoreGraph | undefined): string | undefined {
+  if (!graph) {
+    return undefined;
   }
-  const v = value as Record<string, unknown>;
-  if (v["version"] !== 1) {
-    return false;
-  }
-  const files = v["files"];
-  if (typeof files !== "object" || files === null) {
-    return false;
-  }
-  for (const entry of Object.values(files as Record<string, unknown>)) {
-    if (typeof entry !== "object" || entry === null) {
-      return false;
-    }
-    const e = entry as Record<string, unknown>;
-    if (!Array.isArray(e["nodes"]) || !Array.isArray(e["edges"])) {
-      return false;
-    }
-    // Light validation: required fields only.
-    for (const n of e["nodes"] as unknown[]) {
-      if (typeof n !== "object" || n === null) {
-        return false;
-      }
-      const nn = n as Record<string, unknown>;
-      if (typeof nn["id"] !== "string" || typeof nn["type"] !== "string" || typeof nn["label"] !== "string") {
-        return false;
-      }
-    }
-    for (const ed of e["edges"] as unknown[]) {
-      if (typeof ed !== "object" || ed === null) {
-        return false;
-      }
-      const ee = ed as Record<string, unknown>;
-      if (
-        typeof ee["sourceNodeId"] !== "string" ||
-        typeof ee["sourcePort"] !== "string" ||
-        typeof ee["targetNodeId"] !== "string" ||
-        typeof ee["targetPort"] !== "string"
-      ) {
-        return false;
-      }
-    }
-  }
-  return true;
+  const workflows = graph.nodes.filter((n) => n.kind === "workflow");
+  const main = workflows.find((w) => w.name === "main");
+  return main?.name ?? workflows[0]?.name;
 }
 
 async function requestCopilotFunctionReplacement(input: {

@@ -269,8 +269,6 @@ export default function App(): JSX.Element {
     (spec: {
       type: string;
       label: string;
-      inputs: Array<{ id: string; kind?: "data" | "llm" | "memory" | "tool" | "parser" | "control"; label?: string; multi?: boolean }>;
-      outputs: Array<{ id: string; kind?: "data" | "llm" | "memory" | "tool" | "parser" | "control"; label?: string; multi?: boolean }>;
       props?: Record<string, unknown>;
     }) => {
       const id = `spec:${spec.type}:${randomId()}`;
@@ -283,8 +281,8 @@ export default function App(): JSX.Element {
           id,
           type: spec.type,
           label: spec.label,
-          inputs: spec.inputs,
-          outputs: spec.outputs,
+          inputs: [],
+          outputs: [],
           props: spec.props ?? {},
         },
         position: pos,
@@ -297,14 +295,6 @@ export default function App(): JSX.Element {
     createSpecNode({
       type: "langchain.agent",
       label: "LangChain Agent",
-      inputs: [
-        { id: "input", kind: "data", label: "input" },
-        { id: "llm", kind: "llm", label: "llm" },
-        { id: "memory", kind: "memory", label: "memory" },
-        { id: "tools", kind: "tool", label: "tools", multi: true },
-        { id: "outputParser", kind: "parser", label: "parser" },
-      ],
-      outputs: [{ id: "output", kind: "data", label: "output" }],
       props: {
         systemPrompt: "You are a helpful assistant.",
         promptTemplate: "{input}",
@@ -319,8 +309,6 @@ export default function App(): JSX.Element {
     createSpecNode({
       type: "llm.model",
       label: "LLM Model",
-      inputs: [],
-      outputs: [{ id: "llm", kind: "llm", label: "llm" }],
       props: { provider: "openai", model: "gpt-4o-mini" },
     });
   }, [createSpecNode]);
@@ -329,8 +317,6 @@ export default function App(): JSX.Element {
     createSpecNode({
       type: "memory.buffer",
       label: "Memory Buffer",
-      inputs: [],
-      outputs: [{ id: "memory", kind: "memory", label: "memory" }],
       props: { maxMessages: 20 },
     });
   }, [createSpecNode]);
@@ -339,8 +325,6 @@ export default function App(): JSX.Element {
     createSpecNode({
       type: "tool.example",
       label: "Example Tool",
-      inputs: [],
-      outputs: [{ id: "tool", kind: "tool", label: "tool" }],
       props: { name: "example_tool" },
     });
   }, [createSpecNode]);
@@ -349,8 +333,6 @@ export default function App(): JSX.Element {
     createSpecNode({
       type: "parser.json",
       label: "JSON Parser",
-      inputs: [],
-      outputs: [{ id: "parser", kind: "parser", label: "parser" }],
       props: { schema: {} },
     });
   }, [createSpecNode]);
