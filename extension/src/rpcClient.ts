@@ -18,6 +18,11 @@ interface RpcResponse {
   error?: { message: string };
 }
 
+export type CorePosition = { x: number; y: number };
+export type CoreNode = { id: string; name: string; kind: "node" | "workflow"; position?: CorePosition | null };
+export type CoreEdge = { source: string; target: string };
+export type CoreGraph = { nodes: CoreNode[]; edges: CoreEdge[] };
+
 export class RpcClient {
   private readonly child: ChildProcessWithoutNullStreams;
   private nextId = 1;
@@ -195,6 +200,47 @@ export class RpcClient {
     return response.result;
   }
 
+  public async parseSource(source: string): Promise<CoreGraph> {
+    const response = await this.request({ method: "parse_source", params: { source } });
+    if (response.error) {
+      throw new Error(response.error.message);
+    }
+    if (!isCoreGraph(response.result)) {
+      throw new Error("Invalid parse_source response type");
+    }
+    return response.result;
+  }
+
+  public async renameNode(source: string, oldName: string, newName: string): Promise<string> {
+    const response = await this.request({
+      method: "rename_node",
+      params: { source, old_name: oldName, new_name: newName },
+    });
+    if (response.error) {
+      throw new Error(response.error.message);
+    }
+    const result = response.result as unknown;
+    if (!isObject(result) || typeof result["source"] !== "string") {
+      throw new Error("Invalid rename_node response type");
+    }
+    return result["source"];
+  }
+
+  public async patchNode(source: string, nodeName: string, newFunctionCode: string): Promise<string> {
+    const response = await this.request({
+      method: "patch_node",
+      params: { source, node_name: nodeName, new_function_code: newFunctionCode },
+    });
+    if (response.error) {
+      throw new Error(response.error.message);
+    }
+    const result = response.result as unknown;
+    if (!isObject(result) || typeof result["source"] !== "string") {
+      throw new Error("Invalid patch_node response type");
+    }
+    return result["source"];
+  }
+
   public async stop(): Promise<void> {
     try {
       await this.request({ method: "shutdown" });
@@ -226,6 +272,44 @@ function isRpcResponse(value: unknown): value is RpcResponse {
   }
   const obj = value as Record<string, unknown>;
   return typeof obj["id"] === "number";
+}
+
+function isCoreGraph(value: unknown): value is CoreGraph {
+  if (!isObject(value)) {
+    return false;
+  }
+  const nodes = value["nodes"];
+  const edges = value["edges"];
+  return Array.isArray(nodes) && nodes.every(isCoreNode) && Array.isArray(edges) && edges.every(isCoreEdge);
+}
+
+function isCoreNode(value: unknown): value is CoreNode {
+  if (!isObject(value)) {
+    return false;
+  }
+  const kind = value["kind"];
+  const position = value["position"];
+  const positionOk =
+    position === undefined ||
+    position === null ||
+    (isObject(position) && typeof position["x"] === "number" && typeof position["y"] === "number");
+  return (
+    typeof value["id"] === "string" &&
+    typeof value["name"] === "string" &&
+    (kind === "node" || kind === "workflow") &&
+    positionOk
+  );
+}
+
+function isCoreEdge(value: unknown): value is CoreEdge {
+  if (!isObject(value)) {
+    return false;
+  }
+  return typeof value["source"] === "string" && typeof value["target"] === "string";
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {

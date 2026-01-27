@@ -43,3 +43,12 @@ class Edge(BaseModel):
 
     source: str = Field(..., description="Source node id")
     target: str = Field(..., description="Target node id")
+
+
+class Graph(BaseModel):
+    """A full Holon graph extracted from source code."""
+
+    model_config = ConfigDict(frozen=True)
+
+    nodes: list[Node] = Field(default_factory=list)
+    edges: list[Edge] = Field(default_factory=list)
