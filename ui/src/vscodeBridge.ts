@@ -8,13 +8,29 @@ type VsCodeApi = {
 
 declare function acquireVsCodeApi(): unknown;
 
+let cachedApi: VsCodeApi | undefined;
+let triedAcquire = false;
+
 export function getVsCodeApi(): VsCodeApi | undefined {
-  // In VS Code webview, acquireVsCodeApi exists. In browser dev, it won't.
-  const maybe = (typeof acquireVsCodeApi === "function" ? acquireVsCodeApi() : undefined) as unknown;
-  if (!isVsCodeApi(maybe)) {
+  if (cachedApi) {
+    return cachedApi;
+  }
+  if (triedAcquire) {
     return undefined;
   }
-  return maybe;
+  triedAcquire = true;
+
+  // In VS Code webview, acquireVsCodeApi exists. In browser dev, it won't.
+  try {
+    const maybe = (typeof acquireVsCodeApi === "function" ? acquireVsCodeApi() : undefined) as unknown;
+    if (!isVsCodeApi(maybe)) {
+      return undefined;
+    }
+    cachedApi = maybe;
+    return cachedApi;
+  } catch {
+    return undefined;
+  }
 }
 
 export function postToExtension(message: ToExtensionMessage): void {

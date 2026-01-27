@@ -65,7 +65,7 @@ export class RpcClient {
     });
   }
 
-  public static async start(extensionUri: vscode.Uri): Promise<RpcClient> {
+  public static async start(extensionUri: vscode.Uri, outputChannel?: vscode.OutputChannel): Promise<RpcClient> {
     const config = vscode.workspace.getConfiguration("holon");
     const pythonPath = config.get<string>("pythonPath") ?? "python3";
 
@@ -74,7 +74,7 @@ export class RpcClient {
       throw new Error("No workspace folder is open");
     }
 
-    const output = vscode.window.createOutputChannel("Holon");
+    const output = outputChannel ?? vscode.window.createOutputChannel("Holon");
     output.appendLine("Starting Holon Python RPC...");
 
     const coreDir = resolveCoreDir({ workspaceFolder, extensionUri });

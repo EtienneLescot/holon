@@ -5,13 +5,35 @@ export const PositionSchema = z.object({
   y: z.number(),
 });
 
-export const HolonKindSchema = z.union([z.literal("node"), z.literal("workflow")]);
+export const HolonKindSchema = z.union([z.literal("node"), z.literal("workflow"), z.literal("spec")]);
+
+export const PortDirectionSchema = z.union([z.literal("input"), z.literal("output")]);
+
+export const PortKindSchema = z.union([
+  z.literal("data"),
+  z.literal("llm"),
+  z.literal("memory"),
+  z.literal("tool"),
+  z.literal("parser"),
+  z.literal("control"),
+]);
+
+export const PortSpecSchema = z.object({
+  id: z.string(),
+  direction: PortDirectionSchema,
+  kind: PortKindSchema.optional(),
+  label: z.string().optional(),
+  multi: z.boolean().optional(),
+});
 
 export const CoreNodeSchema = z.object({
   id: z.string(),
   name: z.string(),
   kind: HolonKindSchema,
   position: PositionSchema.nullable().optional(),
+  label: z.string().optional(),
+  nodeType: z.string().optional(),
+  ports: z.array(PortSpecSchema).optional(),
 });
 
 export type CoreNode = z.infer<typeof CoreNodeSchema>;
@@ -19,6 +41,9 @@ export type CoreNode = z.infer<typeof CoreNodeSchema>;
 export const CoreEdgeSchema = z.object({
   source: z.string(),
   target: z.string(),
+  sourcePort: z.string().nullable().optional(),
+  targetPort: z.string().nullable().optional(),
+  kind: z.union([z.literal("code"), z.literal("link")]).optional(),
 });
 
 export type CoreEdge = z.infer<typeof CoreEdgeSchema>;
@@ -70,5 +95,34 @@ export const UiNodeAiRequestSchema = z.object({
   instruction: z.string(),
 });
 
-export const ToExtensionMessageSchema = z.union([UiReadySchema, UiNodesChangedSchema, UiNodeAiRequestSchema]);
+export const UiEdgeCreatedSchema = z.object({
+  type: z.literal("ui.edgeCreated"),
+  edge: z.object({
+    source: z.string(),
+    target: z.string(),
+    sourcePort: z.string().nullable().optional(),
+    targetPort: z.string().nullable().optional(),
+  }),
+});
+
+export const UiNodeCreatedSchema = z.object({
+  type: z.literal("ui.nodeCreated"),
+  node: z.object({
+    id: z.string(),
+    type: z.string(),
+    label: z.string(),
+    inputs: z.array(z.object({ id: z.string(), kind: PortKindSchema.optional(), label: z.string().optional(), multi: z.boolean().optional() })),
+    outputs: z.array(z.object({ id: z.string(), kind: PortKindSchema.optional(), label: z.string().optional(), multi: z.boolean().optional() })),
+    props: z.record(z.unknown()).optional(),
+  }),
+  position: PositionSchema.optional(),
+});
+
+export const ToExtensionMessageSchema = z.union([
+  UiReadySchema,
+  UiNodesChangedSchema,
+  UiNodeAiRequestSchema,
+  UiEdgeCreatedSchema,
+  UiNodeCreatedSchema,
+]);
 export type ToExtensionMessage = z.infer<typeof ToExtensionMessageSchema>;

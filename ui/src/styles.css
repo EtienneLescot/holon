@@ -23,11 +23,36 @@ body {
   align-items: center;
 }
 
+.holonHeaderActions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .badge {
   font-size: 12px;
   padding: 2px 8px;
   border-radius: 999px;
   background: rgba(255,255,255,0.08);
+}
+
+.holonHeaderButton {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.9);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.holonHeaderButton:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .canvas {
@@ -40,6 +65,37 @@ body {
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.12);
   min-width: 220px;
+}
+
+.holonHandle {
+  width: 10px;
+  height: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.holonHandle-data {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.holonHandle-llm {
+  background: rgba(110, 168, 255, 0.55);
+}
+
+.holonHandle-memory {
+  background: rgba(123, 255, 176, 0.45);
+}
+
+.holonHandle-tool {
+  background: rgba(255, 210, 110, 0.45);
+}
+
+.holonHandle-parser {
+  background: rgba(255, 123, 123, 0.45);
+}
+
+.holonHandle-control {
+  background: rgba(154, 167, 255, 0.45);
 }
 
 .holonNodeTop {

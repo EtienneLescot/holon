@@ -1,203 +1,110 @@
-# Holon — Handoff / Next Steps (End-to-End Demo)
+# Holon — Handoff (Compact)
 
 Date: 2026-01-27
 
-This document is the *handoff plan* to continue development in a new conversation.
-Goal: deliver a minimal end-to-end demo where **editing Python code updates nodes live in the React Flow view**, and each node has an **AI button** that opens a prompt modal, generates a **surgical patch prompt**, and sends it via **VS Code Language Model (Copilot) API**.
+Purpose: this is the minimal “restart context” for the next conversation.
 
-## Current State (What’s already implemented)
+## What is a “node” today?
 
-### Monorepo layout
-- `core/` (Poetry) — Python package `holon`
-- `extension/` (TypeScript strict) — VS Code extension skeleton + webview
-- `ui/` (Vite + React + TS strict) — React Flow UI built into `ui/dist`
+Today, a Holon “node” is **just a Python function** decorated with `@node`.
+- There is **no runtime execution engine yet**.
+- There are **no typed ports/connectors yet** (inputs/outputs, LLM, memory, tools, parser).
+- The UI shows a graph derived from source code (+ workflow calls), plus positions.
 
-### Core (Python)
-- DSL stubs: `core/holon/dsl.py`
-- LibCST parser: `core/holon/services/parser.py` (`parse_functions`, `count_node_decorated_functions`)
-- LibCST patcher: `core/holon/services/patcher.py` (`rename_node`, `patch_node`)
-- RPC server: `core/holon/rpc/server.py` (stdio JSONL, methods: `ping`, `hello`, `shutdown`)
-- Tests: `core/tests/*` pass
+Demo file used: `core/examples/demo.holon.py`
+- Nodes: `analyze`, `summarize`
+- Workflow: `main`
 
-### Extension (VS Code)
-- Command `Holon: Open`
-- Webview loads `ui/dist/index.html` and rewrites assets into `webview.asWebviewUri`
-- RPC client:
-  - handshake `ping`
-  - tries `holon.pythonPath` first, then `core/.venv`, then `poetry run python`
-  - logs to OutputChannel “Holon”
+## Done ✅ (End-to-end demo)
 
-### UI (React Flow)
-- Receives `graph.init` message and renders nodes
-- Sends `ui.ready` on load
-- Sends `ui.nodesChanged` on drag stop
+- Core graph parsing: `parse_graph` extracts nodes and workflow→node edges.
+- Core RPC over stdio JSONL:
+  - `parse_source`, `rename_node`, `patch_node`.
+- VS Code extension:
+  - Webview panel “Holon: Open”.
+  - Live parsing on `*.holon.py` edits (debounced).
+  - AI patch flow (Copilot LM API) → core patcher → edits applied in editor.
+- UI (React Flow):
+  - Custom node with “AI” button + prompt modal.
+  - `graph.update` replaces state, edges rendered.
+  - “Auto layout” (dagre) button.
 
-## Target Demo (Acceptance Criteria)
+## Positions: persistence choice ✅ (Option 1)
 
-1) Open a `*.holon.py` file.
-2) Webview shows a graph built from `@node` and `@workflow` in that file.
-3) When the user edits the file (add/remove/rename `@node`), the graph updates within ~250–500ms.
-4) Dragging nodes updates positions and persists them (at least in-memory; ideally written back to code in a stable way).
-5) Clicking “AI” on a node opens a modal, user enters a request.
-6) Extension generates a “surgical prompt” (context + constraints), calls the VS Code LM API (`vscode.lm` vendor `copilot`).
-7) The result is applied as a patch using LibCST (no formatting loss) and the editor updates.
+Positions persist as workspace metadata:
+- Stored in `.holon/positions.json` under the workspace root.
+- Written on node moves and on “Auto layout”.
+- Reloaded on parse and merged into the graph updates.
 
----
+Note: VS Code webviews require caching `acquireVsCodeApi()` (called once). This is fixed.
 
-## Minimal Protocol Between UI ↔ Extension (Typed)
+## Known gotcha
 
-### UI → Extension
-- `ui.ready`
-- `ui.nodesChanged`: `{ id, position }[]`
-- `ui.node.aiRequest`: `{ nodeId, instruction }`
-
-### Extension → UI
-- `graph.init`: `{ nodes, edges }`
-- `graph.update`: `{ nodes, edges }` (same schema; replaces state)
-- `graph.error`: `{ error }`
-- `ai.status`: `{ nodeId, status, message? }`
-
-Implementation note:
-- Keep a shared schema, ideally generated from one source. Short-term: duplicate types with Zod validation in UI and careful TS typing in extension.
+If `holon.pythonPath` points to a Python without deps, the RPC start may fail (e.g. missing `pydantic`). The extension falls back to `poetry run python`.
 
 ---
 
-## Phase 4.1 — Core: Parser should return a Graph (Nodes + Edges)
+# Next steps 🔜 (Real nodes + links)
 
-### What to implement
-1) Add `core/holon/services/graph_parser.py` (new) or extend `parser.py`.
-   - Exported function:
-     - `parse_graph(source_code: str) -> Graph` where `Graph` contains `nodes: list[Node]`, `edges: list[Edge]`.
-2) Edge extraction from workflows:
-   - Within each `@workflow` function body, detect calls to known nodes.
-   - Start simple:
-     - handle `await node_fn(...)`
-     - handle `node_fn(...)`
-     - ignore dynamic call patterns for now
-   - For each call, add `Edge(source=workflow_id, target=node_id)`.
+We want “real nodes” with ports/connectors, starting with a **LangChain Agent node**.
 
-### Data model update
-- Add `Graph` Pydantic model in `core/holon/domain/models.py`.
+## Phase 5.0 — Define the node/port model (shared contract)
 
-### Tests
-- Add `core/tests/test_graph_parser.py`.
-  - Inputs with 2 nodes + 1 workflow referencing them.
-  - Verify nodes and edges extracted.
+Goal: make nodes more than decorated functions.
 
----
+Proposed minimal model (stored as metadata, not in code):
+- `NodeSpec`:
+  - `id`, `type`, `label`
+  - `inputs[]` / `outputs[]` (typed ports)
+  - `props` (JSON-serializable config)
+- `EdgeSpec`:
+  - `sourceNodeId`, `sourcePort`
+  - `targetNodeId`, `targetPort`
 
-## Phase 4.2 — Core: RPC methods for parsing and patching
+Storage (metadata):
+- `.holon/graph.json` (or `.holon/nodes.json` + `.holon/edges.json`)
+  - Keeps code clean, easy to diff/review.
 
-### Extend stdio RPC
-In `core/holon/rpc/server.py`, implement methods:
-- `parse_source`: params `{ source: str }` → result `{ nodes: [...], edges: [...] }`
-- `rename_node`: params `{ source: str, old_name: str, new_name: str }` → result `{ source: str }`
-- `patch_node`: params `{ source: str, node_name: str, new_function_code: str }` → result `{ source: str }`
+## Phase 5.1 — UI: linking nodes (connectors)
+
+Goal: the user can create links between ports.
+- Add visible handles for ports.
+- Implement connect interaction (React Flow `onConnect`).
+- Persist edges in `.holon/graph.json` (same as positions).
+
+## Phase 5.2 — First real node type: LangChain AI Agent
+
+Goal: represent a LangChain Agent node with explicit connectors.
+
+Node: `langchain.agent`
+- Properties (`props`):
+  - `systemPrompt`
+  - `promptTemplate`
+  - `temperature?`, `maxTokens?` (optional)
+  - `agentType` (e.g. tool-calling)
+- Ports:
+  - Input: `input` (data)
+  - Output: `output` (data)
+  - Connector (required): `llm` (to an LLM provider/model node)
+  - Connector (optional): `memory` (conversation history)
+  - Connector (optional, multi): `tools[]`
+  - Connector (optional): `outputParser`
 
 Notes:
-- Keep responses JSON-serializable.
-- Return structured errors: `{ error: { message } }`.
-- Maintain strict input validation (Pydantic models or manual checks).
+- We should not re-invent agent logic: implement this by mapping config to LangChain.
+- First milestone is **configuration + wiring** (no full execution engine required yet).
 
----
+## Phase 5.3 — Supporting node types (stubs first)
 
-## Phase 4.3 — Extension: Live parsing loop (editor → core → UI)
+- `llm.model` (provider selection, model name, keys via env/secret later)
+- `memory.buffer` (basic chat history)
+- `tool.*` (start with a single example tool)
+- `parser.json` / `parser.pydantic` (output shaping)
 
-### Watch active document
-Implement in extension:
-1) When Holon panel opens, bind to:
-   - `vscode.window.onDidChangeActiveTextEditor`
-   - `vscode.workspace.onDidChangeTextDocument` (debounced)
-2) Only handle files matching `**/*.holon.py`.
-3) On each change:
-   - read document text
-   - call RPC `parse_source`
-   - send `graph.update` to UI
+## Phase 5.4 — Execution (later)
 
-### Debounce strategy
-- Use a per-document timer (250–400ms).
-- Cancel previous in-flight parse if new edits arrive (simple approach: increment a version counter and drop out-of-date responses).
-
-### Error surface
-- Send `graph.error` to UI
-- Log full error + stderr to OutputChannel
-
----
-
-## Phase 4.4 — UI: Graph rendering + AI button + modal
-
-### Node rendering
-- Create a custom React Flow node type `HolonNode` with:
-  - label
-  - kind badge
-  - “AI” button
-
-### Prompt modal
-- Minimal modal component:
-  - text area
-  - submit/cancel
-  - shows status (loading/error)
-
-### Message flow
-- On AI submit: `postMessage({ type: 'ui.node.aiRequest', nodeId, instruction })`
-- On drag stop: keep existing `ui.nodesChanged`
-
-Validation:
-- No `any`.
-- Zod-validate `window.message` payloads.
-
----
-
-## Phase 4.5 — Extension: Copilot API call (VS Code LM API)
-
-Use VS Code Language Model API:
-- `const [model] = await vscode.lm.selectChatModels({ vendor: 'copilot' })`
-- `const response = await model.sendRequest(messages, options, token)`
-
-### Minimal prompting strategy (“surgical prompt”)
-Inputs:
-- Node function source (exact code)
-- User instruction
-- Constraints:
-  - preserve signature
-  - do not rename unrelated symbols
-  - output *only* the new function code
-
-Output contract:
-- AI returns a full replacement function definition.
-
-### Apply patch
-1) Extension calls core RPC `patch_node` with `{ source: docText, node_name, new_function_code }`.
-2) Apply result into editor using `TextEditorEdit` replacing full document text.
-3) Parsing loop triggers a UI refresh.
-
-Failure handling:
-- If model unavailable, show actionable error:
-  - “No Copilot model available or consent not granted.”
-
----
-
-## Phase 4.6 — Positions persistence (minimum viable)
-
-Option A (fastest): keep positions in extension memory (Map<nodeId, Position>)
-- When sending `graph.update`, merge stored positions into nodes.
-
-Option B (better): store positions in source
-- Add decorator argument: `@node(position={"x":...,"y":...})` or comment marker.
-- Implement core patcher to update just that metadata.
-
-Recommendation for the demo: **Option A first**, then Option B.
-
----
-
-## Suggested Implementation Order (1–2 days demo)
-
-1) Core: `parse_graph` + edges + tests
-2) Core RPC: `parse_source` method
-3) Extension: file change debounce + `graph.update` to UI
-4) UI: custom node + AI modal + wire messages
-5) Extension: `vscode.lm` call + patch application via core RPC `patch_node`
-6) Positions: in-memory persistence
+When wiring is stable:
+- Add a minimal runtime runner (probably in `core/`) that can execute a graph, starting from a workflow entrypoint.
 
 ---
 
