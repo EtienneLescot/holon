@@ -39,16 +39,45 @@ class _State:
     def __init__(self, *, file_path: Path | None) -> None:
         self.file_path = file_path
         self.source: str = ""
+        self._last_mtime_ns: int | None = None
 
     def load(self) -> None:
         if self.file_path is None:
             return
         self.source = self.file_path.read_text(encoding="utf8")
+        try:
+            self._last_mtime_ns = self.file_path.stat().st_mtime_ns
+        except OSError:
+            self._last_mtime_ns = None
+
+    def refresh(self) -> None:
+        """Reload the backing file if it changed on disk."""
+
+        if self.file_path is None:
+            return
+
+        try:
+            mtime_ns = self.file_path.stat().st_mtime_ns
+        except OSError:
+            return
+
+        if self._last_mtime_ns is not None and mtime_ns == self._last_mtime_ns:
+            return
+
+        try:
+            self.source = self.file_path.read_text(encoding="utf8")
+            self._last_mtime_ns = mtime_ns
+        except OSError:
+            return
 
     def save(self) -> None:
         if self.file_path is None:
             return
         self.file_path.write_text(self.source, encoding="utf8")
+        try:
+            self._last_mtime_ns = self.file_path.stat().st_mtime_ns
+        except OSError:
+            self._last_mtime_ns = None
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -122,14 +151,40 @@ def _make_handler(state: _State) -> type[BaseHTTPRequestHandler]:
             self.end_headers()
 
         def do_GET(self) -> None:  # noqa: N802
+            if self.path in {"/", "/health"}:
+                state.refresh()
+                self._send_json(
+                    200,
+                    {
+                        "ok": True,
+                        "file": str(state.file_path) if state.file_path is not None else None,
+                        "endpoints": {
+                            "source": "/api/source",
+                            "parse": "/api/parse",
+                            "add_spec_node": "/api/add_spec_node",
+                            "add_link": "/api/add_link",
+                            "patch_node": "/api/patch_node",
+                        },
+                        "ui_hint": "The UI runs on the Vite dev server (typically http://127.0.0.1:5173/). This devserver is API-only.",
+                    },
+                )
+                return
             if self.path == "/api/source":
-                self._send_json(200, {"source": state.source})
+                state.refresh()
+                self._send_json(
+                    200,
+                    {
+                        "source": state.source,
+                        "file": str(state.file_path) if state.file_path is not None else None,
+                    },
+                )
                 return
             self._send_json(404, {"error": "not_found"})
 
         def do_PUT(self) -> None:  # noqa: N802
             if self.path == "/api/source":
                 try:
+                    state.refresh()
                     body = self._read_json()
                     source = body.get("source")
                     if not isinstance(source, str):
@@ -144,6 +199,7 @@ def _make_handler(state: _State) -> type[BaseHTTPRequestHandler]:
 
         def do_POST(self) -> None:  # noqa: N802
             try:
+                state.refresh()
                 body = self._read_json()
 
                 if self.path == "/api/parse":

@@ -1,156 +1,133 @@
-Holon - Project Blueprint & Master Context
+# Holon — Blueprint (Single Source of Truth)
 
-⚠️ CONTEXTE CRITIQUE POUR L'AGENT IA :
-Ce document est la SOURCE DE VÉRITÉ (Single Source of Truth) pour le projet Holon.
-Tu ne dois jamais improviser l'architecture. Réfère-toi à ce plan pour chaque fichier généré.
-Ta mission : Construire un éditeur de workflow "AI-Native" où le code est roi.
+⚠️ CONTEXTE CRITIQUE POUR L'AGENT IA
 
-1. Identité & Philosophie
+Ce document est la source de vérité du projet Holon.
 
-Nom du Projet : Holon.
-
-Structure : MONOREPO. Tout le projet réside dans un seul dépôt Git.
-
-Nom du Package Python : holon
-
-Concept Clé : La "Dualité Récursive".
-
-Chaque nœud est un mini-agent (Code).
-
-Le graphe est un méta-agent (Visuel).
-
-L'utilisateur interagit avec le visuel pour prompter des modifications sur le code.
+Règle d'or : si une décision d'architecture, une primitive du DSL, ou un invariant de persistance change, ce fichier doit être mis à jour.
 
 Mantra : "Code is Truth. Visual is Interface. AI is the Worker."
 
-2. Standards de Code & Architecture (MANDATORY)
+---
 
-Pour garantir que le projet reste maintenable malgré la complexité, tu dois respecter ces règles :
+## 1) Ce document (règles d'usage)
 
-A. Code Style & Qualité
+- Ce blueprint doit rester un unique fichier lisible qui capture l'esprit, les décisions et les invariants.
+- Si un autre document contredit celui-ci, c'est ce fichier qu'il faut mettre à jour (puis réaligner le reste).
 
-Type Safety (Non-négociable) :
+Nom du projet : Holon
 
-Python : Mypy en mode strict. Utilisation intensive de Pydantic pour tous les modèles de données (AST nodes, Graph schemas).
+Nom du package Python : `holon`
 
-TypeScript : Strict: true. Interdiction absolue du type any. Utilise des Generics ou unknown avec validation Zod si nécessaire.
+## 2) Identité & philosophie
 
-Docstrings : Chaque fonction exportée doit avoir une docstring Google-style expliquant Args, Returns et Raises.
+Holon est un éditeur de workflows AI-native où :
+- Le **code** encode la topologie et la configuration (source de vérité).
+- Le **visuel** sert à naviguer, comprendre, et déclencher des actions.
+- L'**IA** exécute le travail (patchs chirurgicaux, description), sans casser le reste.
 
-Formatting : Ruff (Python) et Prettier (TS).
+Concept clé : **Dualité récursive**
+- Chaque nœud est un mini-agent (code/config).
+- Le graphe est un méta-agent (composition visuelle).
+- L'utilisateur utilise le visuel pour prompter des modifications de code.
 
-B. Architecture Modulaire (Structure du Monorepo)
+## 3) Décisions non négociables (architecture)
 
-Le projet est un Monorepo composé de 3 dossiers racines distincts :
+### Code is Truth
 
-1. core/ (Python Backend) : Le cerveau.
+Le fichier `*.holon.py` est la seule source de vérité pour :
+- Les **nodes** (fonctions `@node` + déclarations `spec(...)`).
+- Les **liens** (appels dans `@workflow` + déclarations `link(...)`).
+- La **configuration** (arguments de `spec(...)`, et code des fonctions `@node`).
 
-Contient le package holon.
+### JSON = metadata UI uniquement
 
-Gestionnaire : Poetry.
+Le JSON ne doit jamais décrire la topologie. Il est réservé à de la metadata UI.
+- Positions : `.holon/positions.json` (par fichier, par `nodeId`)
+- Annotations : `.holon/annotations.json` (par fichier, par `nodeId`) avec `{ summary, badges[] }`
 
-AUCUNE dépendance à VS Code ou React. Utilisable en CLI.
+### Patching chirurgical (lossless)
 
-2. extension/ (VS Code Adapteur) : Le pont.
+Toutes les réécritures se font via LibCST (lossless) :
+- préserver commentaires, espaces, style
+- patcher uniquement le minimum nécessaire
 
-L'extension VS Code pure.
+Invariants :
+- Un patch ne doit jamais modifier une autre node par accident.
+- Le code reste "humain" : pas de reformat global, pas de churn inutile.
+- Les identifiants `node:*` et `spec:*` sont stables et servent de clé pour la metadata UI.
 
-Lance le processus Python et affiche la Webview.
+## 4) Structure du monorepo
 
-Gestionnaire : npm/yarn.
+- `core/` — backend Python (Poetry). Doit rester indépendant de VS Code/React.
+- `extension/` — extension VS Code (webview + RPC stdio JSONL + Copilot).
+- `ui/` — UI React (Vite + React Flow), compilée et chargée par l'extension.
 
-3. ui/ (React Frontend) : Le visage.
+## 5) DSL & modèle de graphe (v1)
 
-Une application React (Vite) qui compile en fichiers statiques (JS/CSS).
+### Types de nodes
 
-Ces fichiers sont ensuite chargés par extension/.
+- `node:*` : une fonction Python décorée avec `@node`.
+- `spec:*` : une node déterministe déclarée via `spec(...)` au niveau module.
 
-Gestionnaire : npm/yarn.
+### Primitives
 
-C. Code Splitting & Fichiers
+- `@node` : marque une fonction comme node patchable.
+- `@workflow` : marque une fonction dont le corps est analysé pour dériver des liens implicites (workflow→node).
+- `spec(node_id, *, type: str, label?: str, props?: dict)` : déclare une node non-fonction (config pure).
+- `link(source_node_id, source_port, target_node_id, target_port)` : déclare un lien explicite de ports à l'intérieur d'un `@workflow`.
 
-Règle des 200 lignes : Si un fichier dépasse 200 lignes, demande-toi s'il ne faut pas extraire une sous-logique.
+### Liens
 
-Atomicité : Un fichier = Une responsabilité claire (ex: parser.py lit, writer.py écrit, transformer.py modifie).
+- Implicites : dérivés des appels à des nodes dans `@workflow`.
+- Explicites : déclarés via `link(...)` pour des ports.
 
-3. Spécifications Techniques
+## 6) Modèle d'édition (AI-first)
 
-Le DSL Python (Domain Specific Language)
+### AI edit (patch chirurgical)
 
-C'est le format de fichier que l'utilisateur manipule.
+- Sur `node:*` : l'IA propose un remplacement de la fonction ciblée, et le core applique le patch via LibCST.
+- Sur `spec:*` : l'IA propose un patch JSON (`type/label/props`), et le core met à jour le `spec(...)` correspondant via LibCST.
 
-from holon import node, workflow, Context
-from pydantic import BaseModel
+### Describe (lisibilité)
 
-class AnalysisResult(BaseModel):
-    score: float
-    reason: str
+L'IA génère :
+- `summary` (1 phrase courte)
+- `badges[]` (strings libres, éventuellement avec icônes)
 
-@node
-async def analyze_sentiment(ctx: Context, text: str) -> AnalysisResult:
-    """
-    Ce nœud est un agent. L'IA peut modifier ce corps de fonction
-    sans casser le reste du graphe.
-    """
-    # ... logic ...
-    return AnalysisResult(score=0.9, reason="Positive")
+Ces annotations sont affichées dans l'UI et persistées dans `.holon/annotations.json`.
 
-@workflow
-async def main_pipeline():
-    # Le parser lit cette fonction pour dessiner les liens
-    result = await analyze_sentiment(text="Hello world")
-    if result.score > 0.5:
-        await notify_slack(result)
+Principe UX : pas de formulaires d'édition "classiques" comme source primaire.
+- L'utilisateur décrit l'intention.
+- L'IA propose une modification ciblée.
+- Le core applique un patch lossless.
 
+### Hors VS Code (browser dev mode)
 
-Le Moteur de Parsing (Core)
+En dehors de VS Code, on ne peut pas appeler Copilot (`vscode.lm`). La stratégie prévue est :
+- générer un **prompt prêt à copier-coller** (instruction utilisateur + contexte node)
+- exécuter ce prompt dans l'agent IA de son choix
+- appliquer manuellement le patch résultant dans le fichier
 
-Technologie : LibCST (Concrete Syntax Tree).
+## 7) Standards (qualité, typing, contraintes)
 
-Pourquoi ? Contrairement au module ast standard, LibCST préserve les commentaires, les espaces et le style du code original. C'est vital pour un outil qui réécrit le code de l'utilisateur.
+- Type safety :
+  - Python : viser `mypy --strict` à terme, modèles de données structurés.
+  - TypeScript : `strict: true`, pas de `any`.
+- Docstrings : chaque fonction publique/exportée documente `Args/Returns/Raises`.
+- Formatters : Ruff (Python), Prettier (TS).
+- Taille des fichiers : règle des ~200 lignes (extraction si ça grossit).
 
-4. Roadmap du POC (Plan d'Action Séquentiel)
+## 8) Ce qui est volontairement hors-scope (pour l'instant)
 
-Ne tente pas de tout faire d'un coup. Suis ces phases.
+- Un moteur d'exécution complet (Phase 6).
+- Un système de types/ports strict au runtime (aujourd'hui c'est un contrat UI).
 
-Phase 1 : Le "Core Parser" (Fondations)
+## 9) Roadmap (phases) — séquentielle
 
-Objectif : Prouver la capacité à lire/écrire du Python sans perte via LibCST.
-
-Livrables :
-
-core/holon/domain/models.py : Les Pydantic models du Graphe (Node, Edge, Position).
-
-core/holon/services/parser.py : Extraction des nœuds depuis un fichier source.
-
-core/tests/test_parser.py : Tests unitaires robustes.
-
-Phase 2 : La "Loop de Modification" (Le Cœur IA)
-
-Objectif : Simuler une modification chirurgicale.
-
-Livrables :
-
-core/holon/services/patcher.py : Une fonction qui prend le nom d'un nœud et un nouveau code (str), et qui met à jour le fichier source proprement.
-
-Script de démo : core/examples/demo_rename_node.py qui renomme un nœud dans le code et vérifie que les appels dans @workflow sont mis à jour (Refactoring via AST).
-
-Phase 3 : L'Extension VS Code (Squelette)
-
-Objectif : Afficher une webview.
-
-Livrables :
-
-extension/package.json : Extension basique activée sur *.holon.py.
-
-Communication RPC basique (Hello World du Python vers le TS).
-
-Phase 4 : L'Intégration React Flow
-
-Objectif : Rendu visuel.
-
-Livrables :
-
-ui/ : App React Flow qui consomme le JSON du Parser.
-
-Binding bidirectionnel (Drag & Drop visuel -> Update coordonnées).
+- Phase 1 — Core parsing via LibCST ✅
+- Phase 2 — Patching chirurgical via LibCST ✅
+- Phase 3 — Extension VS Code + RPC stdio JSONL ✅
+- Phase 4 — UI React Flow + positions persistées ✅
+- Phase 5 — Spec + Links + AI-first + annotations ✅
+- Phase 6 — Exécution (runner) 🔜

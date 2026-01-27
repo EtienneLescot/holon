@@ -1,5 +1,6 @@
 import { ToExtensionMessageSchema } from "./protocol";
 import { getVsCodeApi, registerBrowserBridge } from "./vscodeBridge";
+import { inferPorts } from "./ports";
 
 type CoreGraph = {
   nodes: Array<{
@@ -38,7 +39,11 @@ type UiGraphEdge = {
   kind?: "code" | "link";
 };
 
-const POSITIONS_KEY = "holon.positions.v1";
+const POSITIONS_KEY_PREFIX = "holon.positions.v1:";
+
+function positionsKey(scope: string): string {
+  return `${POSITIONS_KEY_PREFIX}${scope}`;
+}
 
 function postToUi(message: unknown): void {
   window.postMessage(message, "*");
@@ -60,9 +65,9 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   return data as T;
 }
 
-function loadPositions(): Record<string, { x: number; y: number }> {
+function loadPositions(scope: string): Record<string, { x: number; y: number }> {
   try {
-    const raw = localStorage.getItem(POSITIONS_KEY);
+    const raw = localStorage.getItem(positionsKey(scope));
     if (!raw) {
       return {};
     }
@@ -76,54 +81,11 @@ function loadPositions(): Record<string, { x: number; y: number }> {
   }
 }
 
-function savePositions(next: Record<string, { x: number; y: number }>): void {
+function savePositions(scope: string, next: Record<string, { x: number; y: number }>): void {
   try {
-    localStorage.setItem(POSITIONS_KEY, JSON.stringify(next));
+    localStorage.setItem(positionsKey(scope), JSON.stringify(next));
   } catch {
     // ignore
-  }
-}
-
-function portsForNode(input: { kind: "node" | "workflow" | "spec"; nodeType?: string }): Array<{
-  id: string;
-  direction: "input" | "output";
-  kind?: string;
-  label?: string;
-  multi?: boolean;
-}> {
-  if (input.kind === "workflow") {
-    return [{ id: "start", direction: "output", kind: "control", label: "start" }];
-  }
-  if (input.kind === "node") {
-    return [
-      { id: "input", direction: "input", kind: "data", label: "input" },
-      { id: "output", direction: "output", kind: "data", label: "output" },
-    ];
-  }
-
-  switch (input.nodeType) {
-    case "langchain.agent":
-      return [
-        { id: "input", direction: "input", kind: "data", label: "input" },
-        { id: "llm", direction: "input", kind: "llm", label: "llm" },
-        { id: "memory", direction: "input", kind: "memory", label: "memory" },
-        { id: "tools", direction: "input", kind: "tool", label: "tools", multi: true },
-        { id: "outputParser", direction: "input", kind: "parser", label: "parser" },
-        { id: "output", direction: "output", kind: "data", label: "output" },
-      ];
-    case "llm.model":
-      return [{ id: "llm", direction: "output", kind: "llm", label: "llm" }];
-    case "memory.buffer":
-      return [{ id: "memory", direction: "output", kind: "memory", label: "memory" }];
-    case "tool.example":
-      return [{ id: "tool", direction: "output", kind: "tool", label: "tool" }];
-    case "parser.json":
-      return [{ id: "parser", direction: "output", kind: "parser", label: "parser" }];
-    default:
-      return [
-        { id: "input", direction: "input", kind: "data", label: "input" },
-        { id: "output", direction: "output", kind: "data", label: "output" },
-      ];
   }
 }
 
@@ -147,7 +109,7 @@ function toUiGraph(core: CoreGraph, positions: Record<string, { x: number; y: nu
       position: pos ? { x: pos.x, y: pos.y } : null,
       ...(typeof n.label === "string" ? { label: n.label } : {}),
       ...(nodeType ? { nodeType } : {}),
-      ports: portsForNode({ kind: n.kind, ...(nodeType ? { nodeType } : {}) }),
+      ports: inferPorts({ kind: n.kind, ...(nodeType ? { nodeType } : {}) }),
     };
   });
 
@@ -164,13 +126,45 @@ function toUiGraph(core: CoreGraph, positions: Record<string, { x: number; y: nu
 
 class BrowserDevBridge {
   private source: string = "";
+  private fileScope: string = "memory";
   private lastGraph: CoreGraph | undefined;
-  private positions = loadPositions();
+  private positions: Record<string, { x: number; y: number }> = {};
   private hasSentInit = false;
+  private pollTimer: number | null = null;
 
   async init(): Promise<void> {
-    const res = await fetchJson<{ source: string }>("/api/source");
+    const res = await fetchJson<{ source: string; file: string | null }>("/api/source");
     this.source = res.source;
+    this.fileScope = res.file ?? "memory";
+    this.positions = loadPositions(this.fileScope);
+  }
+
+  startFilePolling(intervalMs: number = 350): void {
+    if (this.pollTimer !== null) {
+      return;
+    }
+    this.pollTimer = window.setInterval(() => {
+      void this.checkForExternalFileChange();
+    }, intervalMs);
+  }
+
+  private async checkForExternalFileChange(): Promise<void> {
+    // If the file is edited in VS Code, devserver refresh() will pick it up,
+    // and /api/source will return the new content.
+    const res = await fetchJson<{ source: string; file: string | null }>("/api/source");
+    const nextScope = res.file ?? "memory";
+    if (nextScope !== this.fileScope) {
+      this.fileScope = nextScope;
+      this.positions = loadPositions(this.fileScope);
+      this.source = res.source;
+      await this.parseAndSend("file.changed");
+      return;
+    }
+    if (res.source === this.source) {
+      return;
+    }
+    this.source = res.source;
+    await this.parseAndSend("file.changed");
   }
 
   async parseAndSend(reason: string): Promise<void> {
@@ -200,7 +194,7 @@ class BrowserDevBridge {
         next[n.id] = { x: n.position.x, y: n.position.y };
       }
       this.positions = next;
-      savePositions(next);
+      savePositions(this.fileScope, next);
       // Re-emit graph quickly to reflect positions.
       if (this.lastGraph) {
         const ui = toUiGraph(this.lastGraph, this.positions);
@@ -211,6 +205,11 @@ class BrowserDevBridge {
 
     if (msg.type === "ui.node.aiRequest") {
       postToUi({ type: "ai.status", nodeId: msg.nodeId, status: "error", message: "AI patch is not supported in browser dev mode yet." });
+      return;
+    }
+
+    if (msg.type === "ui.node.describeRequest") {
+      postToUi({ type: "ai.status", nodeId: msg.nodeId, status: "error", message: "AI describe is not supported in browser dev mode yet." });
       return;
     }
 
@@ -229,7 +228,7 @@ class BrowserDevBridge {
 
       if (msg.position) {
         this.positions = { ...this.positions, [msg.node.id]: msg.position };
-        savePositions(this.positions);
+        savePositions(this.fileScope, this.positions);
       }
 
       await fetchJson("/api/source", { method: "PUT", body: JSON.stringify({ source: this.source }) });
@@ -277,6 +276,9 @@ if (viteEnv?.DEV && !getVsCodeApi()) {
           void bridge.handle(message);
         },
       });
+
+      // Keep browser view in sync with edits done in VS Code.
+      bridge.startFilePolling(350);
     })
     .catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err);

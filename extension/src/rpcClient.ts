@@ -19,8 +19,23 @@ interface RpcResponse {
 }
 
 export type CorePosition = { x: number; y: number };
-export type CoreNode = { id: string; name: string; kind: "node" | "workflow"; position?: CorePosition | null };
-export type CoreEdge = { source: string; target: string };
+export type CoreNode = {
+  id: string;
+  name: string;
+  kind: "node" | "workflow" | "spec";
+  position?: CorePosition | null;
+  label?: string | null;
+  node_type?: string | null;
+  props?: Record<string, unknown> | null;
+};
+
+export type CoreEdge = {
+  source: string;
+  target: string;
+  source_port?: string | null;
+  target_port?: string | null;
+  kind?: "code" | "link" | null;
+};
 export type CoreGraph = { nodes: CoreNode[]; edges: CoreEdge[] };
 
 export class RpcClient {
@@ -256,6 +271,39 @@ export class RpcClient {
     return result["source"];
   }
 
+  public async patchSpecNode(input: {
+    source: string;
+    nodeId: string;
+    nodeType?: string | null;
+    label?: string | null;
+    props?: Record<string, unknown> | null;
+    setNodeType: boolean;
+    setLabel: boolean;
+    setProps: boolean;
+  }): Promise<string> {
+    const response = await this.request({
+      method: "patch_spec_node",
+      params: {
+        source: input.source,
+        node_id: input.nodeId,
+        node_type: input.nodeType ?? null,
+        label: input.label ?? null,
+        props: input.props ?? null,
+        set_node_type: input.setNodeType,
+        set_label: input.setLabel,
+        set_props: input.setProps,
+      },
+    });
+    if (response.error) {
+      throw new Error(response.error.message);
+    }
+    const result = response.result as unknown;
+    if (!isObject(result) || typeof result["source"] !== "string") {
+      throw new Error("Invalid patch_spec_node response type");
+    }
+    return result["source"];
+  }
+
   public async addLink(
     source: string,
     workflowName: string,
@@ -340,7 +388,7 @@ function isCoreNode(value: unknown): value is CoreNode {
   return (
     typeof value["id"] === "string" &&
     typeof value["name"] === "string" &&
-    (kind === "node" || kind === "workflow") &&
+    (kind === "node" || kind === "workflow" || kind === "spec") &&
     positionOk
   );
 }

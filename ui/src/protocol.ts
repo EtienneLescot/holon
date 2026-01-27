@@ -33,6 +33,8 @@ export const CoreNodeSchema = z.object({
   position: PositionSchema.nullable().optional(),
   label: z.string().optional(),
   nodeType: z.string().optional(),
+  summary: z.string().optional(),
+  badges: z.array(z.string()).optional(),
   ports: z.array(PortSpecSchema).optional(),
 });
 
@@ -95,6 +97,11 @@ export const UiNodeAiRequestSchema = z.object({
   instruction: z.string(),
 });
 
+export const UiNodeDescribeRequestSchema = z.object({
+  type: z.literal("ui.node.describeRequest"),
+  nodeId: z.string(),
+});
+
 export const UiEdgeCreatedSchema = z.object({
   type: z.literal("ui.edgeCreated"),
   edge: z.object({
@@ -128,6 +135,7 @@ export const ToExtensionMessageSchema = z.union([
   UiReadySchema,
   UiNodesChangedSchema,
   UiNodeAiRequestSchema,
+  UiNodeDescribeRequestSchema,
   UiEdgeCreatedSchema,
   UiNodeCreatedSchema,
 ]);

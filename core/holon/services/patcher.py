@@ -113,6 +113,60 @@ def add_spec_node(
     return updated.code
 
 
+def patch_spec_node(
+    source_code: str,
+    *,
+    node_id: str,
+    node_type: str | None = None,
+    label: str | None = None,
+    props: dict[str, Any] | None = None,
+    set_node_type: bool = False,
+    set_label: bool = False,
+    set_props: bool = False,
+) -> str:
+    """Patch an existing `spec(...)` declaration identified by `node_id`.
+
+    This is intentionally conservative: it only edits module-level `spec(...)`
+    calls whose first argument equals the provided `node_id`.
+
+    The `set_*` flags allow callers (e.g. RPC) to distinguish "not provided"
+    from "explicitly set to None".
+
+    Args:
+        source_code: Original module source code.
+        node_id: Stable spec node id (first positional arg of `spec(...)`).
+        node_type: New type value (used only if `set_node_type` is True).
+        label: New label (used only if `set_label` is True).
+        props: New props dict (used only if `set_props` is True).
+        set_node_type: Whether to update the `type=` keyword.
+        set_label: Whether to update the `label=` keyword.
+        set_props: Whether to update the `props=` keyword.
+
+    Returns:
+        Updated source code.
+
+    Raises:
+        ValueError: If no matching `spec(node_id, ...)` call is found.
+        libcst.ParserSyntaxError: If the source code is not valid Python.
+    """
+
+    module = cst.parse_module(source_code)
+    wrapper = MetadataWrapper(module)
+    transformer = _PatchSpecNodeTransformer(
+        node_id=node_id,
+        node_type=node_type,
+        label=label,
+        props=props,
+        set_node_type=set_node_type,
+        set_label=set_label,
+        set_props=set_props,
+    )
+    updated = wrapper.visit(transformer)
+    if not transformer.patched:
+        raise ValueError(f"spec node not found: {node_id}")
+    return updated.code
+
+
 def add_link(
     source_code: str,
     *,
@@ -425,6 +479,158 @@ def _decorator_matches(expr: cst.BaseExpression, decorator_name: str) -> bool:
         return target.attr.value == decorator_name
 
     return False
+
+
+@dataclass(slots=True)
+class _PatchSpecNodeTransformer(cst.CSTTransformer):
+    node_id: str
+    node_type: str | None
+    label: str | None
+    props: dict[str, Any] | None
+    set_node_type: bool
+    set_label: bool
+    set_props: bool
+
+    patched: bool = False
+
+    def leave_SimpleStatementLine(
+        self, original_node: cst.SimpleStatementLine, updated_node: cst.SimpleStatementLine
+    ) -> cst.SimpleStatementLine:
+        if self.patched:
+            return updated_node
+
+        if len(original_node.body) != 1:
+            return updated_node
+
+        inner = original_node.body[0]
+        call: cst.Call | None = None
+        if isinstance(inner, cst.Expr) and isinstance(inner.value, cst.Call):
+            call = inner.value
+        elif isinstance(inner, cst.Assign) and isinstance(inner.value, cst.Call):
+            call = inner.value
+        else:
+            return updated_node
+
+        if not _call_matches(call.func, "spec"):
+            return updated_node
+
+        if not call.args:
+            return updated_node
+
+        node_id = _string_expr_value(call.args[0].value)
+        if node_id != self.node_id:
+            return updated_node
+
+        # Extract current values from the call, then apply updates.
+        current = _extract_spec_call_fields(call)
+        next_type = current.get("type")
+        next_label = current.get("label")
+        next_props = current.get("props")
+
+        if self.set_node_type:
+            next_type = self.node_type
+        if self.set_label:
+            next_label = self.label
+        if self.set_props:
+            next_props = self.props
+
+        if not isinstance(next_type, str) or not next_type:
+            raise ValueError("spec(type=...) must be a non-empty string")
+
+        args: list[cst.Arg] = [cst.Arg(value=cst.SimpleString(json.dumps(self.node_id)))]
+        args.append(cst.Arg(keyword=cst.Name("type"), value=cst.SimpleString(json.dumps(next_type))))
+
+        if next_label is not None:
+            args.append(cst.Arg(keyword=cst.Name("label"), value=cst.SimpleString(json.dumps(next_label))))
+
+        if next_props is not None:
+            args.append(cst.Arg(keyword=cst.Name("props"), value=_to_cst_jsonish(next_props)))
+
+        new_call = call.with_changes(args=args)
+
+        # Rewrite the inner statement while preserving the outer SimpleStatementLine.
+        if isinstance(inner, cst.Expr):
+            new_inner: cst.BaseSmallStatement = inner.with_changes(value=new_call)
+        else:
+            new_inner = inner.with_changes(value=new_call)
+
+        self.patched = True
+        return updated_node.with_changes(body=[new_inner])
+
+
+def _extract_spec_call_fields(call: cst.Call) -> dict[str, Any]:
+    """Best-effort extract of fields from a `spec(...)` call.
+
+    This keeps patching predictable while preserving formatting elsewhere.
+    """
+
+    out: dict[str, Any] = {"type": None, "label": None, "props": None}
+    for a in call.args[1:]:
+        if a.keyword is None:
+            continue
+        k = a.keyword.value
+        if k == "type":
+            out["type"] = _string_expr_value(a.value)
+        elif k == "label":
+            out["label"] = _string_expr_value(a.value)
+        elif k == "props":
+            # Reuse jsonish conversion from graph_parser style.
+            out["props"] = _from_cst_jsonish(a.value)
+    return out
+
+
+def _from_cst_jsonish(expr: cst.BaseExpression) -> Any:
+    # Mirror graph_parser's limited JSON-ish support.
+    if isinstance(expr, cst.Name) and expr.value == "None":
+        return None
+    if isinstance(expr, cst.SimpleString):
+        try:
+            return expr.evaluated_value
+        except Exception:
+            return None
+    if isinstance(expr, cst.Integer):
+        return int(expr.value)
+    if isinstance(expr, cst.Float):
+        return float(expr.value)
+    if isinstance(expr, cst.Name):
+        if expr.value == "True":
+            return True
+        if expr.value == "False":
+            return False
+        if expr.value == "None":
+            return None
+    if isinstance(expr, cst.List):
+        return [_from_cst_jsonish(el.value) for el in expr.elements]
+    if isinstance(expr, cst.Dict):
+        out: dict[str, Any] = {}
+        for el in expr.elements:
+            if el is None or el.key is None:
+                return None
+            k = _string_expr_value(el.key)
+            if k is None:
+                return None
+            out[k] = _from_cst_jsonish(el.value)
+        return out
+    # Fallback: unsupported structure; treat as absent.
+    return None
+
+
+def _call_matches(expr: cst.BaseExpression, name: str) -> bool:
+    target: cst.BaseExpression = expr
+    if isinstance(target, cst.Name):
+        return target.value == name
+    if isinstance(target, cst.Attribute):
+        return target.attr.value == name
+    return False
+
+
+def _string_expr_value(expr: cst.BaseExpression) -> str | None:
+    if isinstance(expr, cst.SimpleString):
+        try:
+            return expr.evaluated_value
+        except Exception:
+            return None
+    return None
 
 
 def _is_within_workflow(transformer: cst.CSTTransformer, node: cst.CSTNode) -> bool:

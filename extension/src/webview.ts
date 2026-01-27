@@ -33,6 +33,10 @@ type WebviewToExtensionMessage =
       instruction: string;
     }
   | {
+      type: "ui.node.describeRequest";
+      nodeId: string;
+    }
+  | {
       type: "rpc.stop";
     };
 
@@ -46,6 +50,8 @@ type ExtensionToWebviewMessage =
         position?: { x: number; y: number } | null;
         label?: string;
         nodeType?: string;
+        summary?: string;
+        badges?: string[];
         ports?: PortSpec[];
       }>;
       edges: Array<{ source: string; target: string; sourcePort?: string | null; targetPort?: string | null; kind?: "code" | "link" }>;
@@ -59,6 +65,8 @@ type ExtensionToWebviewMessage =
         position?: { x: number; y: number } | null;
         label?: string;
         nodeType?: string;
+        summary?: string;
+        badges?: string[];
         ports?: PortSpec[];
       }>;
       edges: Array<{ source: string; target: string; sourcePort?: string | null; targetPort?: string | null; kind?: "code" | "link" }>;
@@ -84,6 +92,7 @@ export class HolonPanel {
   private readonly output: vscode.OutputChannel;
 
   private readonly positions = new Map<string, CorePosition>();
+  private readonly annotations = new Map<string, { summary?: string; badges?: string[] }>();
   private lastGraph: CoreGraph | undefined;
   private hasSentGraph = false;
 
@@ -94,6 +103,7 @@ export class HolonPanel {
 
   private readonly workspaceRoot: vscode.Uri | undefined;
   private positionsSaveTimer: NodeJS.Timeout | undefined;
+  private annotationsSaveTimer: NodeJS.Timeout | undefined;
 
   public static createOrShow(extensionUri: vscode.Uri): void {
     const column = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
@@ -159,6 +169,9 @@ export class HolonPanel {
             return;
           case "ui.node.aiRequest":
             await this.onUiAiRequest(message.nodeId, message.instruction);
+            return;
+          case "ui.node.describeRequest":
+            await this.onUiDescribeRequest(message.nodeId);
             return;
           case "rpc.stop":
             await this.onStop();
@@ -336,17 +349,16 @@ export class HolonPanel {
   private async onUiAiRequest(nodeId: string, instruction: string): Promise<void> {
     this.output.appendLine(`ui.node.aiRequest: ${nodeId} (${instruction.length} chars)`);
 
-    if (!nodeId.startsWith("node:")) {
+    if (!nodeId.startsWith("node:") && !nodeId.startsWith("spec:")) {
       this.postMessage({
         type: "ai.status",
         nodeId,
         status: "error",
-        message: "AI patch is only supported for node:*",
+        message: "AI patch is only supported for node:* and spec:*",
       });
       return;
     }
 
-    const nodeName = nodeId.slice("node:".length);
     const targetUri = this.lastHolonDocumentUri ?? vscode.window.activeTextEditor?.document?.uri;
     if (!targetUri) {
       this.postMessage({
@@ -375,31 +387,65 @@ export class HolonPanel {
         : await vscode.window.showTextDocument(doc, { preview: false, preserveFocus: true });
 
     const source = doc.getText();
-    const functionCode = extractTopLevelFunction(source, nodeName);
-    if (!functionCode) {
-      this.postMessage({
-        type: "ai.status",
-        nodeId,
-        status: "error",
-        message: `Couldn't find function: ${nodeName}`,
-      });
-      return;
-    }
 
     this.postMessage({ type: "ai.status", nodeId, status: "working", message: "Asking Copilot..." });
 
     try {
-      const replacement = await requestCopilotFunctionReplacement({
-        output: this.output,
-        functionCode,
-        instruction,
-        token: new vscode.CancellationTokenSource().token,
-      });
-
-      this.postMessage({ type: "ai.status", nodeId, status: "working", message: "Applying patch..." });
-
       const rpc = await this.ensureRpc();
-      const updated = await rpc.patchNode(source, nodeName, replacement);
+
+      let updated: string;
+      if (nodeId.startsWith("node:")) {
+        const nodeName = nodeId.slice("node:".length);
+        const functionCode = extractTopLevelFunction(source, nodeName);
+        if (!functionCode) {
+          this.postMessage({
+            type: "ai.status",
+            nodeId,
+            status: "error",
+            message: `Couldn't find function: ${nodeName}`,
+          });
+          return;
+        }
+
+        const replacement = await requestCopilotFunctionReplacement({
+          output: this.output,
+          functionCode,
+          instruction,
+          token: new vscode.CancellationTokenSource().token,
+        });
+
+        this.postMessage({ type: "ai.status", nodeId, status: "working", message: "Applying patch..." });
+        updated = await rpc.patchNode(source, nodeName, replacement);
+      } else {
+        const specInfo = this.findNodeInfo(nodeId);
+        const patch = await requestCopilotSpecPatch({
+          output: this.output,
+          nodeId,
+          instruction,
+          current: specInfo,
+          token: new vscode.CancellationTokenSource().token,
+        });
+
+        const hasType = Object.prototype.hasOwnProperty.call(patch, "type");
+        const hasLabel = Object.prototype.hasOwnProperty.call(patch, "label");
+        const hasProps = Object.prototype.hasOwnProperty.call(patch, "props");
+
+        if (!hasType && !hasLabel && !hasProps) {
+          throw new Error("Copilot produced an empty spec patch (no fields)");
+        }
+
+        this.postMessage({ type: "ai.status", nodeId, status: "working", message: "Applying patch..." });
+        updated = await rpc.patchSpecNode({
+          source,
+          nodeId,
+          nodeType: hasType ? (typeof patch.type === "string" ? patch.type : null) : null,
+          label: hasLabel ? (typeof patch.label === "string" ? patch.label : null) : null,
+          props: hasProps ? (isRecord(patch.props) ? (patch.props as Record<string, unknown>) : null) : null,
+          setNodeType: hasType,
+          setLabel: hasLabel,
+          setProps: hasProps,
+        });
+      }
 
       const fullRange = new vscode.Range(
         doc.positionAt(0),
@@ -422,6 +468,73 @@ export class HolonPanel {
     }
   }
 
+  private async onUiDescribeRequest(nodeId: string): Promise<void> {
+    this.output.appendLine(`ui.node.describeRequest: ${nodeId}`);
+
+    await this.describeNode(nodeId);
+  }
+
+  public async refreshAllDescriptions(): Promise<void> {
+    const graph = this.lastGraph;
+    if (!graph) {
+      vscode.window.showInformationMessage("Holon: nothing to describe yet (open a *.holon.py file and run Holon: Open).");
+      return;
+    }
+
+    const candidates = graph.nodes
+      .map((n) => n.id)
+      .filter((id) => typeof id === "string" && (id.startsWith("node:") || id.startsWith("spec:")));
+
+    if (candidates.length === 0) {
+      vscode.window.showInformationMessage("Holon: no nodes eligible for description.");
+      return;
+    }
+
+    this.output.appendLine(`refreshAllDescriptions: ${candidates.length} nodes`);
+
+    for (const nodeId of candidates) {
+      try {
+        await this.describeNode(nodeId);
+      } catch {
+        // describeNode already emits an ai.status error; keep going.
+      }
+    }
+  }
+
+  private async describeNode(nodeId: string): Promise<void> {
+    const baseInfo = this.findNodeInfo(nodeId);
+    const info = await this.enrichNodeInfoFromSource(nodeId, baseInfo);
+    if (!info) {
+      this.postMessage({ type: "ai.status", nodeId, status: "error", message: "Unknown nodeId" });
+      throw new Error("Unknown nodeId");
+    }
+
+    this.postMessage({ type: "ai.status", nodeId, status: "working", message: "Asking Copilot..." });
+
+    try {
+      const description = await requestCopilotNodeDescription({
+        output: this.output,
+        nodeId,
+        info,
+        token: new vscode.CancellationTokenSource().token,
+      });
+
+      this.annotations.set(nodeId, description);
+      this.schedulePersistAnnotations();
+
+      if (this.lastGraph) {
+        this.postGraphUpdate(this.lastGraph);
+      }
+
+      this.postMessage({ type: "ai.status", nodeId, status: "done", message: "Described" });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.output.appendLine(`AI describe error: ${message}`);
+      this.postMessage({ type: "ai.status", nodeId, status: "error", message });
+      throw err;
+    }
+  }
+
   private async onStop(): Promise<void> {
     for (const timer of this.parseTimers.values()) {
       clearTimeout(timer);
@@ -431,6 +544,11 @@ export class HolonPanel {
     if (this.positionsSaveTimer) {
       clearTimeout(this.positionsSaveTimer);
       this.positionsSaveTimer = undefined;
+    }
+
+    if (this.annotationsSaveTimer) {
+      clearTimeout(this.annotationsSaveTimer);
+      this.annotationsSaveTimer = undefined;
     }
 
     const rpc = this.rpc;
@@ -530,6 +648,17 @@ export class HolonPanel {
         this.output.appendLine(`positions load warning: ${message}`);
       }
 
+      // Load persisted annotations for this document and merge into the in-memory map.
+      try {
+        const persisted = await this.loadPersistedAnnotations(doc.uri);
+        for (const [id, ann] of Object.entries(persisted)) {
+          this.annotations.set(id, ann);
+        }
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.output.appendLine(`annotations load warning: ${message}`);
+      }
+
     }
 
     try {
@@ -593,7 +722,8 @@ export class HolonPanel {
       position?: { x: number; y: number } | null;
       label?: string;
       nodeType?: string;
-      ports?: PortSpec[];
+      summary?: string;
+      badges?: string[];
     }>;
     edges: Array<{ source: string; target: string; sourcePort?: string | null; targetPort?: string | null; kind?: "code" | "link" }>;
   } {
@@ -604,7 +734,8 @@ export class HolonPanel {
       position?: { x: number; y: number } | null;
       label?: string;
       nodeType?: string;
-      ports?: PortSpec[];
+      summary?: string;
+      badges?: string[];
     }> = [];
 
     // 1) Nodes from code.
@@ -614,12 +745,16 @@ export class HolonPanel {
       const label = (merged as unknown as { label?: string | null }).label;
       const nodeType = (merged as unknown as { node_type?: string | null; nodeType?: string | null }).node_type ?? (merged as unknown as { nodeType?: string | null }).nodeType;
       const nodeTypeValue = typeof nodeType === "string" ? nodeType : undefined;
+      const ann = this.annotations.get(merged.id);
+      const summary = ann?.summary;
+      const badges = ann?.badges;
       nodes.push({
         ...merged,
         kind: kind as "node" | "workflow" | "spec",
         label: typeof label === "string" ? label : `${kind}: ${merged.name}`,
         ...(nodeTypeValue ? { nodeType: nodeTypeValue } : {}),
-        ports: portsForParsedNode({ kind: kind as "node" | "workflow" | "spec", ...(nodeTypeValue ? { nodeType: nodeTypeValue } : {}) }),
+        ...(typeof summary === "string" ? { summary } : {}),
+        ...(Array.isArray(badges) ? { badges: badges.filter((b) => typeof b === "string") } : {}),
       });
     }
 
@@ -647,6 +782,60 @@ export class HolonPanel {
     });
 
     return { nodes, edges: deduped };
+  }
+
+  private findNodeInfo(nodeId: string): NodeInfo | undefined {
+    const graph = this.lastGraph;
+    if (!graph) {
+      return undefined;
+    }
+    const n = graph.nodes.find((x) => x.id === nodeId);
+    if (!n) {
+      return undefined;
+    }
+
+    const label = (n as unknown as { label?: string | null }).label;
+    const nodeType =
+      (n as unknown as { node_type?: string | null; nodeType?: string | null }).node_type ??
+      (n as unknown as { nodeType?: string | null }).nodeType;
+    const props = (n as unknown as { props?: Record<string, unknown> | null }).props;
+
+    return {
+      id: n.id,
+      name: n.name,
+      kind: n.kind,
+      ...(typeof label === "string" ? { label } : {}),
+      ...(typeof nodeType === "string" ? { nodeType } : {}),
+      ...(isRecord(props) ? { props } : {}),
+    };
+  }
+
+  private async enrichNodeInfoFromSource(nodeId: string, info: NodeInfo | undefined): Promise<NodeInfo | undefined> {
+    if (!info) {
+      return undefined;
+    }
+    if (!nodeId.startsWith("node:")) {
+      return info;
+    }
+
+    const targetUri = this.lastHolonDocumentUri ?? vscode.window.activeTextEditor?.document?.uri;
+    if (!targetUri) {
+      return info;
+    }
+    try {
+      const doc = await vscode.workspace.openTextDocument(targetUri);
+      if (!isHolonDocument(doc)) {
+        return info;
+      }
+      const nodeName = nodeId.slice("node:".length);
+      const functionCode = extractTopLevelFunction(doc.getText(), nodeName);
+      if (!functionCode) {
+        return info;
+      }
+      return { ...info, functionCode };
+    } catch {
+      return info;
+    }
   }
 
   private schedulePersistPositions(): void {
@@ -718,6 +907,92 @@ export class HolonPanel {
     }
 
     this.output.appendLine(`positions store path: ${storeUri.fsPath}`);
+
+    // Ensure .holon dir exists.
+    const dir = vscode.Uri.joinPath(this.workspaceRoot, ".holon");
+    try {
+      await vscode.workspace.fs.stat(dir);
+    } catch {
+      await vscode.workspace.fs.createDirectory(dir);
+    }
+
+    const json = JSON.stringify(store, null, 2);
+    await vscode.workspace.fs.writeFile(storeUri, Buffer.from(json, "utf8"));
+  }
+
+  private schedulePersistAnnotations(): void {
+    if (!this.lastHolonDocumentUri) {
+      return;
+    }
+    if (this.annotationsSaveTimer) {
+      clearTimeout(this.annotationsSaveTimer);
+    }
+    this.annotationsSaveTimer = setTimeout(() => {
+      void this.persistAnnotationsNow(this.lastHolonDocumentUri!).catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        this.output.appendLine(`annotations save error: ${message}`);
+      });
+    }, 250);
+  }
+
+  private async persistAnnotationsNow(docUri: vscode.Uri): Promise<void> {
+    if (!this.workspaceRoot) {
+      this.output.appendLine("annotations save skipped: no workspace root");
+      return;
+    }
+    const rel = vscode.workspace.asRelativePath(docUri, false);
+    const store = await this.readAnnotationsStore();
+    store.files[rel] = Object.fromEntries(this.annotations.entries());
+    await this.writeAnnotationsStore(store);
+    this.output.appendLine(`annotations saved: ${rel}`);
+  }
+
+  private async loadPersistedAnnotations(docUri: vscode.Uri): Promise<Record<string, { summary?: string; badges?: string[] }>> {
+    if (!this.workspaceRoot) {
+      return {};
+    }
+    const rel = vscode.workspace.asRelativePath(docUri, false);
+    const store = await this.readAnnotationsStore();
+    return store.files[rel] ?? {};
+  }
+
+  private annotationsStorePath(): vscode.Uri | undefined {
+    if (!this.workspaceRoot) {
+      return undefined;
+    }
+    return vscode.Uri.joinPath(this.workspaceRoot, ".holon", "annotations.json");
+  }
+
+  private async readAnnotationsStore(): Promise<{
+    version: 1;
+    files: Record<string, Record<string, { summary?: string; badges?: string[] }>>;
+  }> {
+    const storeUri = this.annotationsStorePath();
+    if (!storeUri) {
+      return { version: 1, files: {} };
+    }
+
+    try {
+      const bytes = await vscode.workspace.fs.readFile(storeUri);
+      const text = Buffer.from(bytes).toString("utf8");
+      const parsed = JSON.parse(text) as unknown;
+      if (!isAnnotationsStore(parsed)) {
+        return { version: 1, files: {} };
+      }
+      return parsed;
+    } catch {
+      return { version: 1, files: {} };
+    }
+  }
+
+  private async writeAnnotationsStore(store: {
+    version: 1;
+    files: Record<string, Record<string, { summary?: string; badges?: string[] }>>;
+  }): Promise<void> {
+    const storeUri = this.annotationsStorePath();
+    if (!storeUri || !this.workspaceRoot) {
+      return;
+    }
 
     // Ensure .holon dir exists.
     const dir = vscode.Uri.joinPath(this.workspaceRoot, ".holon");
@@ -918,6 +1193,63 @@ function isPositionsStore(
   return true;
 }
 
+function isAnnotationsStore(
+  value: unknown
+): value is {
+  version: 1;
+  files: Record<string, Record<string, { summary?: string; badges?: string[] }>>;
+} {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const v = value as Record<string, unknown>;
+  if (v["version"] !== 1) {
+    return false;
+  }
+  const files = v["files"];
+  if (typeof files !== "object" || files === null) {
+    return false;
+  }
+
+  for (const perFile of Object.values(files as Record<string, unknown>)) {
+    if (typeof perFile !== "object" || perFile === null) {
+      return false;
+    }
+    for (const ann of Object.values(perFile as Record<string, unknown>)) {
+      if (typeof ann !== "object" || ann === null) {
+        return false;
+      }
+      const a = ann as Record<string, unknown>;
+      if (a["summary"] !== undefined && typeof a["summary"] !== "string") {
+        return false;
+      }
+      if (a["badges"] !== undefined) {
+        if (!Array.isArray(a["badges"])) {
+          return false;
+        }
+        if (!(a["badges"] as unknown[]).every((b) => typeof b === "string")) {
+          return false;
+        }
+      }
+    }
+  }
+  return true;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+type NodeInfo = {
+  id: string;
+  name: string;
+  kind: "node" | "workflow" | "spec";
+  label?: string;
+  nodeType?: string;
+  props?: Record<string, unknown>;
+  functionCode?: string;
+};
+
 type PortDirection = "input" | "output";
 type PortKind = "data" | "llm" | "memory" | "tool" | "parser" | "control";
 
@@ -928,43 +1260,6 @@ type PortSpec = {
   label?: string | undefined;
   multi?: boolean | undefined;
 };
-
-function portsForParsedNode(input: { kind: "node" | "workflow" | "spec"; nodeType?: string }): PortSpec[] {
-  if (input.kind === "workflow") {
-    return [{ id: "start", direction: "output", kind: "control", label: "start" }];
-  }
-  if (input.kind === "node") {
-    return [
-      { id: "input", direction: "input", kind: "data", label: "input" },
-      { id: "output", direction: "output", kind: "data", label: "output" },
-    ];
-  }
-  // Spec nodes: infer ports by type (keeps code concise; ports are UI contract).
-  switch (input.nodeType) {
-    case "langchain.agent":
-      return [
-        { id: "input", direction: "input", kind: "data", label: "input" },
-        { id: "llm", direction: "input", kind: "llm", label: "llm" },
-        { id: "memory", direction: "input", kind: "memory", label: "memory" },
-        { id: "tools", direction: "input", kind: "tool", label: "tools", multi: true },
-        { id: "outputParser", direction: "input", kind: "parser", label: "parser" },
-        { id: "output", direction: "output", kind: "data", label: "output" },
-      ];
-    case "llm.model":
-      return [{ id: "llm", direction: "output", kind: "llm", label: "llm" }];
-    case "memory.buffer":
-      return [{ id: "memory", direction: "output", kind: "memory", label: "memory" }];
-    case "tool.example":
-      return [{ id: "tool", direction: "output", kind: "tool", label: "tool" }];
-    case "parser.json":
-      return [{ id: "parser", direction: "output", kind: "parser", label: "parser" }];
-    default:
-      return [
-        { id: "input", direction: "input", kind: "data", label: "input" },
-        { id: "output", direction: "output", kind: "data", label: "output" },
-      ];
-  }
-}
 
 function pickWorkflowName(graph: CoreGraph | undefined): string | undefined {
   if (!graph) {
@@ -1022,6 +1317,216 @@ async function requestCopilotFunctionReplacement(input: {
     throw new Error("Copilot response did not look like a function definition");
   }
   return cleaned;
+}
+
+async function requestCopilotNodeDescription(input: {
+  output: vscode.OutputChannel;
+  nodeId: string;
+  info: NodeInfo;
+  token: vscode.CancellationToken;
+}): Promise<{ summary?: string; badges?: string[] }> {
+  const system =
+    "You are a UI assistant that produces a compact description of a node. " +
+    "Return ONLY valid JSON, no markdown, no explanations. " +
+    "Schema: {summary: string, badges: string[]}. " +
+    "Badges are freeform short strings (can include icons/emoji). " +
+    "Badge style guide (optional but encouraged): prefer consistent categories like " +
+    "'kind:compute', 'kind:io', 'kind:llm', 'kind:memory', 'kind:tool', 'kind:parse', 'risk:side-effects', 'perf:heavy'.";
+
+  const contextParts: string[] = [];
+  contextParts.push(`nodeId: ${input.nodeId}`);
+  contextParts.push(`kind: ${input.info.kind}`);
+  contextParts.push(`name: ${input.info.name}`);
+  if (input.info.label) contextParts.push(`label: ${input.info.label}`);
+  if (input.info.nodeType) contextParts.push(`type: ${input.info.nodeType}`);
+  if (input.info.props) contextParts.push(`props: ${JSON.stringify(input.info.props)}`);
+  if (input.info.functionCode) contextParts.push(`functionCode:\n${input.info.functionCode}`);
+
+  const user =
+    "Describe this Holon node for display in a graph UI.\n" +
+    "Constraints:\n" +
+    "- summary: one sentence, <= 140 chars\n" +
+    "- badges: 0..6 items, each <= 20 chars\n" +
+    "- Output ONLY JSON\n\n" +
+    contextParts.join("\n");
+
+  const obj = await requestCopilotJsonObject({ output: input.output, system, user, token: input.token });
+  const summary = typeof obj["summary"] === "string" ? obj["summary"] : undefined;
+  const badgesRaw = obj["badges"];
+  const badges = Array.isArray(badgesRaw) ? badgesRaw.filter((b) => typeof b === "string") : undefined;
+  return { ...(summary ? { summary } : {}), ...(badges ? { badges } : {}) };
+}
+
+type SpecPatch = { type?: unknown; label?: unknown; props?: unknown };
+
+function describeType(value: unknown): string {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "array";
+  return typeof value;
+}
+
+function validateSpecPropsForKnownType(nodeType: string, props: Record<string, unknown>): void {
+  // Minimal, conservative checks for common built-in spec types.
+  // Unknown keys are allowed; this is only to catch obviously malformed JSON.
+  const ensureString = (k: string) => {
+    if (props[k] !== undefined && typeof props[k] !== "string") {
+      throw new Error(`props.${k} must be a string`);
+    }
+  };
+  const ensureNumber = (k: string) => {
+    if (props[k] !== undefined && typeof props[k] !== "number") {
+      throw new Error(`props.${k} must be a number`);
+    }
+  };
+  const ensureObject = (k: string) => {
+    if (props[k] !== undefined && !isRecord(props[k])) {
+      throw new Error(`props.${k} must be an object`);
+    }
+  };
+
+  switch (nodeType) {
+    case "langchain.agent":
+      ensureString("systemPrompt");
+      ensureString("promptTemplate");
+      ensureNumber("temperature");
+      ensureNumber("maxTokens");
+      ensureString("agentType");
+      return;
+    case "llm.model":
+      ensureString("provider");
+      ensureString("model");
+      return;
+    case "memory.buffer":
+      ensureNumber("maxMessages");
+      return;
+    case "tool.example":
+      ensureString("name");
+      return;
+    case "parser.json":
+      ensureObject("schema");
+      return;
+    default:
+      return;
+  }
+}
+
+function validateSpecPatch(patch: Record<string, unknown>, currentType?: string | undefined): SpecPatch {
+  const allowed = new Set(["type", "label", "props"]);
+  const unknownKeys = Object.keys(patch).filter((k) => !allowed.has(k));
+  if (unknownKeys.length) {
+    throw new Error(`Copilot spec patch contained unknown keys: ${unknownKeys.join(", ")}. Allowed keys: type, label, props.`);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(patch, "type")) {
+    if (typeof patch["type"] !== "string" || patch["type"].trim().length === 0) {
+      throw new Error(`Spec patch key 'type' must be a non-empty string (got ${describeType(patch["type"])})`);
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "label")) {
+    const v = patch["label"];
+    if (!(typeof v === "string" || v === null)) {
+      throw new Error(`Spec patch key 'label' must be a string or null (got ${describeType(v)})`);
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "props")) {
+    const v = patch["props"];
+    if (!(isRecord(v) || v === null)) {
+      throw new Error(`Spec patch key 'props' must be an object or null (got ${describeType(v)})`);
+    }
+
+    // Optional: validate some known types to avoid common bad outputs.
+    const typeToCheck = (typeof patch["type"] === "string" ? (patch["type"] as string) : currentType) ?? undefined;
+    if (typeToCheck && v !== null && isRecord(v)) {
+      validateSpecPropsForKnownType(typeToCheck, v);
+    }
+  }
+
+  return patch as SpecPatch;
+}
+
+async function requestCopilotSpecPatch(input: {
+  output: vscode.OutputChannel;
+  nodeId: string;
+  instruction: string;
+  current: NodeInfo | undefined;
+  token: vscode.CancellationToken;
+}): Promise<SpecPatch> {
+  const system =
+    "You are a code-edit assistant that outputs ONLY JSON patches for Holon spec(...) nodes. " +
+    "Return ONLY valid JSON object, no markdown. " +
+    "Allowed keys: type, label, props. " +
+    "Omit keys you don't want to change. " +
+    "Values: type is string, label is string|null, props is object|null.";
+
+  const current = input.current;
+  const user =
+    "We are editing a single spec(...) node in Python code.\n" +
+    "Return a JSON object describing the changes.\n\n" +
+    `nodeId: ${input.nodeId}\n` +
+    (current?.nodeType ? `current.type: ${current.nodeType}\n` : "") +
+    (current?.label ? `current.label: ${current.label}\n` : "") +
+    (current?.props ? `current.props: ${JSON.stringify(current.props)}\n` : "") +
+    `User instruction: ${input.instruction.trim()}\n`;
+
+  const obj = await requestCopilotJsonObject({ output: input.output, system, user, token: input.token });
+
+  // Validate contracts eagerly so we can show actionable errors before patching.
+  return validateSpecPatch(obj, input.current?.nodeType);
+}
+
+async function requestCopilotJsonObject(input: {
+  output: vscode.OutputChannel;
+  system: string;
+  user: string;
+  token: vscode.CancellationToken;
+}): Promise<Record<string, unknown>> {
+  const lm = (vscode as unknown as { lm?: unknown }).lm;
+  if (!isLmApi(lm)) {
+    throw new Error("No VS Code LM API available (vscode.lm)");
+  }
+
+  const models = await lm.selectChatModels({ vendor: "copilot" });
+  const model = models[0];
+  if (!model) {
+    throw new Error("No Copilot chat model available (consent not granted?)");
+  }
+
+  const response = await model.sendRequest(
+    [
+      { role: "system", content: input.system },
+      { role: "user", content: input.user },
+    ],
+    {},
+    input.token
+  );
+
+  const text = await readLmResponseText(response);
+  const cleaned = stripMarkdownFences(text).trim();
+
+  const parsed = parseJsonObjectLenient(cleaned);
+  if (!isRecord(parsed)) {
+    throw new Error("Copilot response was not a JSON object");
+  }
+  return parsed;
+}
+
+function parseJsonObjectLenient(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    // Best-effort: extract first {...} block.
+    const start = value.indexOf("{");
+    const end = value.lastIndexOf("}");
+    if (start !== -1 && end !== -1 && end > start) {
+      const slice = value.slice(start, end + 1);
+      try {
+        return JSON.parse(slice);
+      } catch {
+        return undefined;
+      }
+    }
+    return undefined;
+  }
 }
 
 type LmApi = {

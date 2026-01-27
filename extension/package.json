@@ -18,6 +18,10 @@
       {
         "command": "holon.open",
         "title": "Holon: Open"
+      },
+      {
+        "command": "holon.refreshDescriptions",
+        "title": "Holon: Refresh Descriptions"
       }
     ],
     "configuration": {

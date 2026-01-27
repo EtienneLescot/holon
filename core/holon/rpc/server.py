@@ -22,6 +22,7 @@ from holon.services.graph_parser import parse_graph
 from holon.services.patcher import add_link as add_link_source
 from holon.services.patcher import add_spec_node as add_spec_node_source
 from holon.services.patcher import patch_node as patch_node_source
+from holon.services.patcher import patch_spec_node as patch_spec_node_source
 from holon.services.patcher import rename_node as rename_node_source
 
 
@@ -61,6 +62,17 @@ class _AddLinkParams(BaseModel):
     source_port: str
     target_node_id: str
     target_port: str
+
+
+class _PatchSpecNodeParams(BaseModel):
+    source: str
+    node_id: str
+    node_type: str | None = None
+    label: str | None = None
+    props: dict[str, Any] | None = None
+    set_node_type: bool = False
+    set_label: bool = False
+    set_props: bool = False
 
 
 def main() -> None:
@@ -168,6 +180,23 @@ def handle_request(request: Any) -> dict[str, Any]:
                 source_port=params.source_port,
                 target_node_id=params.target_node_id,
                 target_port=params.target_port,
+            )
+            return {"id": request_id, "result": {"source": updated}}
+        except Exception as exc:  # noqa: BLE001 - return structured RPC errors
+            return {"id": request_id, "error": {"message": _format_error(exc)}}
+
+    if method == "patch_spec_node":
+        try:
+            params = _parse_params(request.get("params"), _PatchSpecNodeParams)
+            updated = patch_spec_node_source(
+                params.source,
+                node_id=params.node_id,
+                node_type=params.node_type,
+                label=params.label,
+                props=params.props,
+                set_node_type=params.set_node_type,
+                set_label=params.set_label,
+                set_props=params.set_props,
             )
             return {"id": request_id, "result": {"source": updated}}
         except Exception as exc:  # noqa: BLE001 - return structured RPC errors

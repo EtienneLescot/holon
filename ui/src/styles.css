@@ -105,6 +105,28 @@ body {
   gap: 10px;
 }
 
+.holonNodeActions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.holonPills {
+  margin-top: 6px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.holonPill {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.12);
+  color: rgba(255,255,255,0.85);
+}
+
 .holonNodeTitle {
   font-size: 13px;
   font-weight: 600;
@@ -131,6 +153,13 @@ body {
   margin-top: 8px;
   font-size: 12px;
   opacity: 0.9;
+}
+
+.holonNodeSummary {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: rgba(255,255,255,0.82);
 }
 
 .holonNodeStatus-working {

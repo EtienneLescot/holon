@@ -1,137 +1,65 @@
-# Holon — Handoff (Compact)
+# Holon — Status & Next Steps
 
 Date: 2026-01-27
 
-Purpose: this is the minimal “restart context” for the next conversation.
+This file captures the current state (what is implemented) and the next concrete steps.
 
-## What is a “node” today?
+## Current model (important)
 
-Today, a Holon “node” is **just a Python function** decorated with `@node`.
-- There is **no runtime execution engine yet**.
-- There are **no typed ports/connectors yet** (inputs/outputs, LLM, memory, tools, parser).
-- The UI shows a graph derived from source code (+ workflow calls), plus positions.
+Holon is explicitly **code-first**:
+- Topology + config live in the `*.holon.py` source.
+- JSON is used only for UI metadata.
 
-Demo file used: `core/examples/demo.holon.py`
-- Nodes: `analyze`, `summarize`
-- Workflow: `main`
+Nodes in the graph can be:
+- `node:*` — a Python function decorated with `@node`.
+- `spec:*` — a deterministic node declared via `spec(...)` at module level.
 
-## Done ✅ (End-to-end demo)
+Links can be:
+- workflow→node (implicit): derived from calls inside `@workflow`.
+- port links (explicit): declared via `link(...)` inside a `@workflow`.
 
-- Core graph parsing: `parse_graph` extracts nodes and workflow→node edges.
-- Core RPC over stdio JSONL:
-  - `parse_source`, `rename_node`, `patch_node`.
-- VS Code extension:
-  - Webview panel “Holon: Open”.
-  - Live parsing on `*.holon.py` edits (debounced).
-  - AI patch flow (Copilot LM API) → core patcher → edits applied in editor.
-- UI (React Flow):
-  - Custom node with “AI” button + prompt modal.
-  - `graph.update` replaces state, edges rendered.
-  - “Auto layout” (dagre) button.
+## Done ✅ (end-to-end)
 
-## Positions: persistence choice ✅ (Option 1)
+Core (Python):
+- Parsing via LibCST: `@node`, `@workflow`, module-level `spec(...)`, workflow-level `link(...)`.
+- Patching via LibCST:
+  - `patch_node(...)` for `node:*`.
+  - `patch_spec_node(...)` for `spec:*`.
+- RPC over stdio JSONL: `parse_source`, `rename_node`, `patch_node`, `add_spec_node`, `add_link`, `patch_spec_node`.
 
-Positions persist as workspace metadata:
-- Stored in `.holon/positions.json` under the workspace root.
-- Written on node moves and on “Auto layout”.
-- Reloaded on parse and merged into the graph updates.
+Extension (VS Code):
+- Webview renders `graph.init/update` and live-updates on file edits.
+- Persisted positions: `.holon/positions.json`.
+- Persisted annotations (UI readability): `.holon/annotations.json`.
+- AI-first actions via Copilot (`vscode.lm`):
+  - “AI edit” on `node:*` patches only that function.
+  - “AI edit” on `spec:*` patches only that `spec(...)` call (JSON patch → RPC patch).
+  - “Describe” generates `{summary, badges[]}` for `node:*` and `spec:*`.
 
-Note: VS Code webviews require caching `acquireVsCodeApi()` (called once). This is fixed.
+UI (React):
+- Node cards show badges (freeform strings) + summary.
+- Buttons: “AI” (edit) + “Describe”.
 
-## Known gotcha
+## Known limitations / pitfalls
 
-If `holon.pythonPath` points to a Python without deps, the RPC start may fail (e.g. missing `pydantic`). The extension falls back to `poetry run python`.
+- Browser dev mode cannot call Copilot (`vscode.lm`). The intended fallback is to generate a ready-to-copy “AI prompt” (built from the user instruction + node context) so you can run it in your own agent and apply the resulting surgical patch manually.
+- Ports are still a UI contract (not enforced/executed at runtime).
+- `patch_spec_node` is conservative: it patches module-level `spec(node_id, ...)` calls only.
 
----
+## Next steps 🔜 (highest impact)
 
-# Next steps 🔜 (Real nodes + links)
+1) Improve AI patch reliability
+- Add stricter JSON contracts for spec patches (e.g. enforce `type` string and validate `props` shape).
+- Better error messages when Copilot returns malformed JSON.
 
-We want “real nodes” with ports/connectors, starting with a **LangChain Agent node**.
+2) Make “Describe” more useful
+- Include a stable badge style guide (still freeform, but encourage consistency).
+- Optionally add a “refresh all descriptions” command.
 
-## Phase 5.0 — Define the node/port model (shared contract)
+3) Formalize the shared contract (ports + node types)
+- Move the port inference logic to a dedicated shared place (today it’s duplicated between extension and browser bridge).
+- Define a minimal registry of known `spec` types and their port shapes.
 
-Goal: make nodes more than decorated functions, *without* introducing a second "source of truth".
-
-Key decision (aligned with the blueprint):
-- **Code is Truth** for the graph topology (nodes + links).
-- JSON is allowed **only for UI-only state** (positions/layout), not for the workflow itself.
-
-Minimal shared model (conceptual contract):
-- Node has:
-  - `id`, `type`, `label`
-  - `props` (JSON-serializable config)
-- Edge has:
-  - `sourceNodeId`, `sourcePort`
-  - `targetNodeId`, `targetPort`
-
-Storage:
-- Positions: `.holon/positions.json` (UI-only)
-- Graph topology: **encoded in the `.holon.py` file** via a tiny DSL (`spec()` + `link()`), parsed by LibCST.
-
-## Phase 5.1 — UI: linking nodes (connectors)
-
-Goal: the user can create links between ports.
-
-Implementation (code-first):
-- Add visible handles for ports.
-- Implement connect interaction (React Flow `onConnect`).
-- On connect, the extension calls core patcher to insert a `link(...)` statement into the target `@workflow`.
-- Then re-parse the Python file and update the UI.
-
-## Phase 5.2 — First real node type: LangChain AI Agent
-
-Goal: represent a LangChain Agent node with explicit connectors.
-
-Node: `langchain.agent`
-- Properties (`props`):
-  - `systemPrompt`
-  - `promptTemplate`
-  - `temperature?`, `maxTokens?` (optional)
-  - `agentType` (e.g. tool-calling)
-- Ports:
-  - Input: `input` (data)
-  - Output: `output` (data)
-  - Connector (required): `llm` (to an LLM provider/model node)
-  - Connector (optional): `memory` (conversation history)
-  - Connector (optional, multi): `tools[]`
-  - Connector (optional): `outputParser`
-
-Notes:
-- We should not re-invent agent logic: implement this by mapping config to LangChain.
-- First milestone is **configuration + wiring** (no full execution engine required yet).
-
-Code encoding (Variant A):
-- Spec nodes are declared at module level:
-  - `spec("spec:agent:...", type="langchain.agent", label="LangChain Agent", props={...})`
-- Links are declared inside a workflow:
-  - `link("spec:llm:...", "llm", "spec:agent:...", "llm")`
-
-## Phase 5.3 — Supporting node types (stubs first)
-
-- `llm.model` (provider selection, model name, keys via env/secret later)
-- `memory.buffer` (basic chat history)
-- `tool.*` (start with a single example tool)
-- `parser.json` / `parser.pydantic` (output shaping)
-
-## Phase 5.4 — Execution (later)
-
-When wiring is stable:
-- Add a minimal runtime runner (probably in `core/`) that can execute a graph, starting from a workflow entrypoint.
-
----
-
-## Quick “How to run the demo” (when implemented)
-
-1) Build UI: `cd ui && npm install && npm run build`
-2) Build extension: `cd extension && npm install && npm run compile`
-3) Run extension: `F5` (Extension Development Host)
-4) Open a `*.holon.py` file
-5) Run `Holon: Open`
-
----
-
-## Notes / Known Pitfalls
-
-- Webview resource loading requires `localResourceRoots` to include `ui/dist`.
-- Copilot integration should use `vscode.lm` (vendor `copilot`). Handle missing model/consent/quota errors.
-- Keep files <200 LOC when possible; split UI components early (`nodes/`, `components/`, `bridge/`).
+4) Prep Phase 6 (execution)
+- Define a minimal runner contract: given a workflow entrypoint, resolve spec nodes into runtime objects.
+- Keep execution opt-in and separate from editing.

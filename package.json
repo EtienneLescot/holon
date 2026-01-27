@@ -1,0 +1,10 @@
+{
+  "name": "holon",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:demo": "node scripts/dev.mjs --workflow core/examples/demo.holon.py"
+  }
+}

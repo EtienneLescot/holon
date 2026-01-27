@@ -20,6 +20,7 @@ import dagre from "dagre";
 
 import { ToUiMessageSchema, type CoreEdge, type CoreNode } from "./protocol";
 import { postToExtension } from "./vscodeBridge";
+import { inferPorts } from "./ports";
 
 type UiNodeData = {
   label: string;
@@ -27,21 +28,26 @@ type UiNodeData = {
   name: string;
   kind: "node" | "workflow" | "spec";
   ports: Array<{ id: string; direction: "input" | "output"; kind?: string | undefined; label?: string | undefined; multi?: boolean | undefined }>;
+  summary?: string;
+  badges?: string[];
   aiStatus?: AiStatus;
   onAi: (nodeId: string) => void;
+  onDescribe: (nodeId: string) => void;
 };
 
 type AiStatus = { status: "idle" | "working" | "error" | "done"; message?: string };
 
 function toReactFlowNodes(
   input: CoreNode[],
-  opts: { onAi: (nodeId: string) => void; aiByNodeId: Record<string, AiStatus | undefined> }
+  opts: { onAi: (nodeId: string) => void; onDescribe: (nodeId: string) => void; aiByNodeId: Record<string, AiStatus | undefined> }
 ):
   Array<Node<UiNodeData>> {
   return input.map((n, idx) => {
     const position = n.position ?? { x: 40 + idx * 220, y: n.kind === "workflow" ? 60 : 180 };
     const aiStatus = opts.aiByNodeId[n.id];
-    const ports = n.ports ?? [];
+    const ports = n.ports && n.ports.length > 0 ? n.ports : inferPorts({ kind: n.kind, nodeType: n.nodeType });
+    const summary = n.summary;
+    const badges = n.badges;
     return {
       id: n.id,
       position,
@@ -51,8 +57,11 @@ function toReactFlowNodes(
         name: n.name,
         kind: n.kind,
         ports,
+        ...(typeof summary === "string" ? { summary } : {}),
+        ...(Array.isArray(badges) ? { badges } : {}),
         ...(aiStatus ? { aiStatus } : {}),
         onAi: opts.onAi,
+        onDescribe: opts.onDescribe,
       },
       type: "holon",
     };
@@ -74,7 +83,15 @@ function toReactFlowEdges(input: CoreEdge[]): Edge[] {
 function HolonNode(props: NodeProps<UiNodeData>): JSX.Element {
   const { data } = props;
   const status = data.aiStatus?.status ?? "idle";
-  const canAiPatch = data.nodeId.startsWith("node:");
+  const canAiEdit = data.nodeId.startsWith("node:") || data.nodeId.startsWith("spec:");
+  const canDescribe = data.nodeId.startsWith("node:") || data.nodeId.startsWith("spec:");
+
+  const stop = (e: { stopPropagation: () => void; preventDefault?: () => void }): void => {
+    // React Flow uses pointer events for drag/pan. Stop those at the source so
+    // button clicks aren't eaten by a drag start.
+    e.stopPropagation();
+    e.preventDefault?.();
+  };
 
   const inputs = data.ports.filter((p) => p.direction === "input");
   const outputs = data.ports.filter((p) => p.direction === "output");
@@ -107,24 +124,59 @@ function HolonNode(props: NodeProps<UiNodeData>): JSX.Element {
       ))}
 
       <div className="holonNodeTop">
-        <div className="holonNodeTitle">{data.label}</div>
-        {canAiPatch ? (
-          <button
-            className="nodrag holonAiButton"
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              data.onAi(data.nodeId);
-            }}
-            disabled={status === "working"}
-            title={status === "working" ? "AI working..." : "Ask Copilot to patch this node"}
-            type="button"
-          >
-            AI
-          </button>
-        ) : null}
+        <div>
+          <div className="holonNodeTitle">{data.label}</div>
+          {data.badges?.length ? (
+            <div className="holonPills">
+              {data.badges.map((b) => (
+                <span key={b} className="holonPill">
+                  {b}
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="holonNodeActions">
+          {canAiEdit ? (
+            <button
+              className="nodrag nopan holonAiButton"
+              onPointerDown={stop}
+              onPointerDownCapture={stop}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                data.onAi(data.nodeId);
+              }}
+              disabled={status === "working"}
+              title={status === "working" ? "AI working..." : "Ask Copilot to edit this node"}
+              type="button"
+            >
+              AI
+            </button>
+          ) : null}
+
+          {canDescribe ? (
+            <button
+              className="nodrag nopan holonAiButton"
+              onPointerDown={stop}
+              onPointerDownCapture={stop}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                data.onDescribe(data.nodeId);
+              }}
+              disabled={status === "working"}
+              title={status === "working" ? "AI working..." : "Ask Copilot to describe this node"}
+              type="button"
+            >
+              Describe
+            </button>
+          ) : null}
+        </div>
       </div>
       {data.aiStatus?.message ? <div className={`holonNodeStatus holonNodeStatus-${status}`}>{data.aiStatus.message}</div> : null}
+      {data.summary ? <div className="holonNodeSummary">{data.summary}</div> : null}
     </div>
   );
 }
@@ -142,6 +194,10 @@ export default function App(): JSX.Element {
     setAiInstruction("");
   }, []);
 
+  const onDescribe = useCallback((nodeId: string) => {
+    postToExtension({ type: "ui.node.describeRequest", nodeId });
+  }, []);
+
   useEffect(() => {
     postToExtension({ type: "ui.ready" });
 
@@ -153,7 +209,7 @@ export default function App(): JSX.Element {
 
       const msg = parsed.data;
       if (msg.type === "graph.init" || msg.type === "graph.update") {
-        setNodes(toReactFlowNodes(msg.nodes, { onAi, aiByNodeId }));
+        setNodes(toReactFlowNodes(msg.nodes, { onAi, onDescribe, aiByNodeId }));
         setEdges(toReactFlowEdges(msg.edges));
       }
 
@@ -162,7 +218,7 @@ export default function App(): JSX.Element {
           {
             id: "error",
             position: { x: 40, y: 40 },
-            data: { label: `error: ${msg.error}`, nodeId: "error", name: "error", kind: "workflow", ports: [], onAi },
+            data: { label: `error: ${msg.error}`, nodeId: "error", name: "error", kind: "workflow", ports: [], onAi, onDescribe },
           },
         ]);
         setEdges([]);
@@ -194,7 +250,7 @@ export default function App(): JSX.Element {
 
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
-  }, [onAi, setEdges, setNodes]);
+  }, [onAi, onDescribe, setEdges, setNodes]);
 
   const onNodeDragStop: NodeDragHandler = (_event, node) => {
     postToExtension({ type: "ui.nodesChanged", nodes: [{ id: node.id, position: node.position }] });
@@ -402,19 +458,27 @@ export default function App(): JSX.Element {
         <div className="holonModalOverlay" role="dialog" aria-modal="true">
           <div className="holonModal">
             <div className="holonModalHeader">
-              <strong>AI patch</strong>
+              <strong>AI edit</strong>
               <span className="holonModalSub">{aiModalNodeId}</span>
             </div>
             <textarea
-              className="nodrag holonModalTextarea"
+              className="nodrag nopan holonModalTextarea"
               value={aiInstruction}
               onChange={(e) => setAiInstruction(e.target.value)}
-              placeholder="Describe the change you want (e.g. 'Add basic input validation and return a default on error')."
+              onPointerDown={(e) => e.stopPropagation()}
+              onPointerDownCapture={(e) => e.stopPropagation()}
+              placeholder={
+                aiModalNodeId.startsWith("spec:")
+                  ? "Describe what you want this node to do / how to configure it (Copilot will edit spec(...))."
+                  : "Describe the change you want in this node's code (Copilot will patch the function)."
+              }
             />
             <div className="holonModalButtons">
               <button
                 type="button"
-                className="nodrag holonButton"
+                className="nodrag nopan holonButton"
+                onPointerDown={(e) => e.stopPropagation()}
+                onPointerDownCapture={(e) => e.stopPropagation()}
                 onMouseDown={(e) => e.stopPropagation()}
                 onClick={() => {
                   setAiModalNodeId(null);
@@ -425,7 +489,9 @@ export default function App(): JSX.Element {
               </button>
               <button
                 type="button"
-                className="nodrag holonButton holonButtonPrimary"
+                className="nodrag nopan holonButton holonButtonPrimary"
+                onPointerDown={(e) => e.stopPropagation()}
+                onPointerDownCapture={(e) => e.stopPropagation()}
                 onMouseDown={(e) => e.stopPropagation()}
                 disabled={!aiInstruction.trim()}
                 onClick={() => {
