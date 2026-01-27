@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+
+# Virtual envs
+.venv/
+venv/
+
+# Tooling
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Node
+**/node_modules/
+ui/dist/
+extension/dist/
+
+# OS
+.DS_Store

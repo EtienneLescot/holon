@@ -1,0 +1,45 @@
+{
+  "name": "holon-extension",
+  "displayName": "Holon",
+  "description": "Holon VS Code extension (Phase 3 skeleton).",
+  "version": "0.0.1",
+  "publisher": "local",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": [
+    "workspaceContains:**/*.holon.py",
+    "onCommand:holon.open"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "holon.open",
+        "title": "Holon: Open"
+      }
+    ],
+    "configuration": {
+      "title": "Holon",
+      "properties": {
+        "holon.pythonPath": {
+          "type": "string",
+          "default": "python3",
+          "description": "Python executable used to launch Holon core process."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "watch": "tsc -p . -w",
+    "lint": "eslint .",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.4.5"
+  }
+}
