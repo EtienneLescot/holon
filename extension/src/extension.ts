@@ -7,6 +7,15 @@ export function activate(context: vscode.ExtensionContext): void {
     HolonPanel.createOrShow(context.extensionUri);
   });
 
+  const reloadUiCommand = vscode.commands.registerCommand("holon.reloadUi", () => {
+    const panel = HolonPanel.currentPanel;
+    if (!panel) {
+      HolonPanel.createOrShow(context.extensionUri);
+      return;
+    }
+    panel.reloadWebviewHtml();
+  });
+
   const refreshDescriptionsCommand = vscode.commands.registerCommand("holon.refreshDescriptions", async () => {
     // Ensure a panel exists so it has the right document context.
     if (!HolonPanel.currentPanel) {
@@ -30,7 +39,7 @@ export function activate(context: vscode.ExtensionContext): void {
     await panel.refreshAllDescriptions();
   });
 
-  context.subscriptions.push(openCommand, refreshDescriptionsCommand);
+  context.subscriptions.push(openCommand, refreshDescriptionsCommand, reloadUiCommand);
 }
 
 export function deactivate(): void {

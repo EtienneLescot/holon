@@ -49,6 +49,148 @@ function postToUi(message: unknown): void {
   window.postMessage(message, "*");
 }
 
+function extractTopLevelFunction(source: string, name: string): string | null {
+  const lines = source.split(/\r?\n/);
+
+  const defRe = new RegExp(`^(async\\s+def|def)\\s+${name.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}\\s*\\(`);
+
+  let defLine = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line === undefined) {
+      continue;
+    }
+    if (line.startsWith(" ") || line.startsWith("\t")) {
+      continue;
+    }
+    if (defRe.test(line.trimEnd())) {
+      defLine = i;
+      break;
+    }
+  }
+  if (defLine === -1) {
+    return null;
+  }
+
+  // Include contiguous decorators immediately above.
+  let start = defLine;
+  for (let i = defLine - 1; i >= 0; i--) {
+    const l = lines[i];
+    if (l === undefined) {
+      break;
+    }
+    if (l.startsWith(" ") || l.startsWith("\t")) {
+      break;
+    }
+    const t = l.trim();
+    if (t.startsWith("@")) {
+      start = i;
+      continue;
+    }
+    if (t === "") {
+      // allow blank line between decorators and def? keep simple: stop.
+      break;
+    }
+    break;
+  }
+
+  // End at next top-level statement.
+  let end = lines.length;
+  for (let i = defLine + 1; i < lines.length; i++) {
+    const l = lines[i];
+    if (l === undefined) {
+      continue;
+    }
+    if (l.trim() === "") {
+      continue;
+    }
+    const isTopLevel = !(l.startsWith(" ") || l.startsWith("\t"));
+    if (isTopLevel) {
+      end = i;
+      break;
+    }
+  }
+
+  return lines.slice(start, end).join("\n").trimEnd() + "\n";
+}
+
+function buildAiEditPrompt(input: {
+  nodeId: string;
+  instruction: string;
+  currentNodeType?: string;
+  currentLabel?: string;
+  currentProps?: Record<string, unknown> | null;
+  functionCode?: string | null;
+}): { title: string; prompt: string } {
+  const isSpec = input.nodeId.startsWith("spec:");
+  if (!isSpec) {
+    return {
+      title: "AI edit prompt (copy/paste into your agent)",
+      prompt:
+        "Task: Modify the following Holon @node function.\n" +
+        "Return ONLY the full replacement Python function definition.\n" +
+        "No markdown fences. No explanations.\n\n" +
+        "Constraints:\n" +
+        "- Preserve the function name and signature exactly\n" +
+        "- Do not rename unrelated symbols\n" +
+        "- Output only the function definition\n\n" +
+        `User instruction:\n${input.instruction.trim()}\n\n` +
+        `Current function code:\n${(input.functionCode ?? "<missing function code>").trimEnd()}\n`,
+    };
+  }
+
+  const context = [
+    `nodeId: ${input.nodeId}`,
+    input.currentNodeType ? `current.type: ${input.currentNodeType}` : "",
+    input.currentLabel ? `current.label: ${input.currentLabel}` : "",
+    input.currentProps ? `current.props: ${JSON.stringify(input.currentProps)}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return {
+    title: "AI spec patch prompt (copy/paste into your agent)",
+    prompt:
+      "We are editing a single spec(...) node in Python code.\n" +
+      "Return ONLY a valid JSON object describing the changes.\n" +
+      "No markdown. No explanations.\n\n" +
+      "Allowed keys: type, label, props (omit keys you don't want to change).\n" +
+      "Value types: type is string, label is string|null, props is object|null.\n\n" +
+      `${context}\n` +
+      `User instruction: ${input.instruction.trim()}\n`,
+  };
+}
+
+function buildDescribePrompt(input: {
+  nodeId: string;
+  kind: string;
+  name: string;
+  label?: string;
+  nodeType?: string;
+  props?: Record<string, unknown> | null;
+  functionCode?: string | null;
+}): { title: string; prompt: string } {
+  const parts: string[] = [];
+  parts.push(`nodeId: ${input.nodeId}`);
+  parts.push(`kind: ${input.kind}`);
+  parts.push(`name: ${input.name}`);
+  if (input.label) parts.push(`label: ${input.label}`);
+  if (input.nodeType) parts.push(`type: ${input.nodeType}`);
+  if (input.props) parts.push(`props: ${JSON.stringify(input.props)}`);
+  if (input.functionCode) parts.push(`functionCode:\n${input.functionCode.trimEnd()}`);
+
+  return {
+    title: "Describe prompt (copy/paste into your agent)",
+    prompt:
+      "Describe this Holon node for display in a graph UI.\n" +
+      "Return ONLY valid JSON. No markdown. No explanations.\n" +
+      "Schema: {summary: string, badges: string[]}.\n" +
+      "Constraints: summary <= 140 chars; badges 0..6 items, each <= 20 chars.\n\n" +
+      parts.join("\n") +
+      "\n",
+  };
+}
+
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
@@ -204,12 +346,95 @@ class BrowserDevBridge {
     }
 
     if (msg.type === "ui.node.aiRequest") {
-      postToUi({ type: "ai.status", nodeId: msg.nodeId, status: "error", message: "AI patch is not supported in browser dev mode yet." });
+      // Browser mode: generate a copyable prompt for the user to run in their own agent.
+      const node = this.lastGraph?.nodes.find((n) => n.id === msg.nodeId);
+      const nodeType = node && typeof node.node_type === "string" ? node.node_type : undefined;
+      const label = node && typeof node.label === "string" ? node.label : undefined;
+      const props = node && node.props && typeof node.props === "object" ? (node.props as Record<string, unknown>) : null;
+
+      const functionCode = msg.nodeId.startsWith("node:") ? extractTopLevelFunction(this.source, msg.nodeId.slice("node:".length)) : null;
+      const args: {
+        nodeId: string;
+        instruction: string;
+        currentProps: Record<string, unknown> | null;
+        functionCode: string | null;
+        currentNodeType?: string;
+        currentLabel?: string;
+      } = {
+        nodeId: msg.nodeId,
+        instruction: msg.instruction,
+        currentProps: props,
+        functionCode,
+      };
+      if (nodeType) {
+        args.currentNodeType = nodeType;
+      }
+      if (label) {
+        args.currentLabel = label;
+      }
+
+      const built = buildAiEditPrompt(args);
+
+      postToUi({ type: "ai.prompt", nodeId: msg.nodeId, title: built.title, prompt: built.prompt });
+      postToUi({ type: "ai.status", nodeId: msg.nodeId, status: "done", message: "Prompt ready (browser mode)." });
       return;
     }
 
     if (msg.type === "ui.node.describeRequest") {
-      postToUi({ type: "ai.status", nodeId: msg.nodeId, status: "error", message: "AI describe is not supported in browser dev mode yet." });
+      const node = this.lastGraph?.nodes.find((n) => n.id === msg.nodeId);
+      const functionCode = msg.nodeId.startsWith("node:") ? extractTopLevelFunction(this.source, msg.nodeId.slice("node:".length)) : null;
+      if (!node) {
+        postToUi({ type: "ai.status", nodeId: msg.nodeId, status: "error", message: "Unknown node." });
+        return;
+      }
+
+      const describeArgs: {
+        nodeId: string;
+        kind: string;
+        name: string;
+        props: Record<string, unknown> | null;
+        functionCode: string | null;
+        label?: string;
+        nodeType?: string;
+      } = {
+        nodeId: node.id,
+        kind: node.kind,
+        name: node.name,
+        props: node.props && typeof node.props === "object" ? (node.props as Record<string, unknown>) : null,
+        functionCode,
+      };
+      if (typeof node.label === "string" && node.label) {
+        describeArgs.label = node.label;
+      }
+      if (typeof node.node_type === "string" && node.node_type) {
+        describeArgs.nodeType = node.node_type;
+      }
+
+      const built = buildDescribePrompt(describeArgs);
+
+      postToUi({ type: "ai.prompt", nodeId: msg.nodeId, title: built.title, prompt: built.prompt });
+      postToUi({ type: "ai.status", nodeId: msg.nodeId, status: "done", message: "Prompt ready (browser mode)." });
+      return;
+    }
+
+    if (msg.type === "ui.node.deleteRequest") {
+      await fetchJson<{ source: string }>("/api/delete_node", {
+        method: "POST",
+        body: JSON.stringify({ node_id: msg.nodeId }),
+      }).then((r) => {
+        this.source = r.source;
+      });
+
+      // Drop any persisted position for the node.
+      if (this.positions[msg.nodeId]) {
+        const next = { ...this.positions };
+        delete next[msg.nodeId];
+        this.positions = next;
+        savePositions(this.fileScope, next);
+      }
+
+      await fetchJson("/api/source", { method: "PUT", body: JSON.stringify({ source: this.source }) });
+      await this.parseAndSend("ui.node.deleteRequest");
       return;
     }
 

@@ -203,6 +203,33 @@ def add_link(
     return updated.code
 
 
+def delete_node(source_code: str, *, node_id: str) -> str:
+    """Delete a node from code.
+
+    Supported:
+    - spec nodes: remove the module-level `spec(node_id, ...)` statement.
+    - node functions: remove the `@node` function definition.
+
+    Also removes explicit `link(...)` statements inside workflows where the
+    deleted node id appears as either source or target.
+
+    Notes:
+    - This does NOT attempt to remove workflow call edges (e.g. `x = analyze(...)`).
+    - Workflow nodes are not deleted.
+    """
+
+    if not isinstance(node_id, str) or not node_id:
+        raise ValueError("node_id must be a non-empty string")
+
+    module = cst.parse_module(source_code)
+    wrapper = MetadataWrapper(module)
+    transformer = _DeleteNodeTransformer(node_id=node_id)
+    updated = wrapper.visit(transformer)
+    if not transformer.deleted_any:
+        raise ValueError(f"node not found: {node_id}")
+    return updated.code
+
+
 def _parse_single_function(code: str) -> cst.FunctionDef:
     module = cst.parse_module(code)
 
@@ -556,6 +583,86 @@ class _PatchSpecNodeTransformer(cst.CSTTransformer):
 
         self.patched = True
         return updated_node.with_changes(body=[new_inner])
+
+
+@dataclass(slots=True)
+class _DeleteNodeTransformer(cst.CSTTransformer):
+    """Delete spec(...) statements, @node functions, and related link(...) statements."""
+
+    node_id: str
+    deleted_any: bool = False
+
+    def __post_init__(self) -> None:
+        if not self.node_id:
+            raise ValueError("node_id must be non-empty")
+
+    @property
+    def _node_name(self) -> str | None:
+        if self.node_id.startswith("node:"):
+            name = self.node_id[len("node:") :]
+            return name or None
+        return None
+
+    def leave_FunctionDef(self, original_node: cst.FunctionDef, updated_node: cst.FunctionDef) -> cst.RemovalSentinel | cst.FunctionDef:
+        node_name = self._node_name
+        if node_name and _is_decorated_as(original_node, "node") and original_node.name.value == node_name:
+            self.deleted_any = True
+            return cst.RemoveFromParent()
+        return updated_node
+
+    def leave_SimpleStatementLine(
+        self, original_node: cst.SimpleStatementLine, updated_node: cst.SimpleStatementLine
+    ) -> cst.RemovalSentinel | cst.SimpleStatementLine:
+        # Remove module-level spec(node_id, ...)
+        if _is_spec_statement(original_node, self.node_id):
+            self.deleted_any = True
+            return cst.RemoveFromParent()
+
+        # Remove link(...) statements referencing the node id.
+        if _is_link_statement_referencing(original_node, self.node_id):
+            self.deleted_any = True
+            return cst.RemoveFromParent()
+
+        return updated_node
+
+
+def _is_spec_statement(stmt: cst.SimpleStatementLine, node_id: str) -> bool:
+    if len(stmt.body) != 1:
+        return False
+
+    inner = stmt.body[0]
+    call: cst.Call | None = None
+    if isinstance(inner, cst.Expr) and isinstance(inner.value, cst.Call):
+        call = inner.value
+    elif isinstance(inner, cst.Assign) and isinstance(inner.value, cst.Call):
+        call = inner.value
+    else:
+        return False
+
+    if not _call_matches(call.func, "spec"):
+        return False
+    if not call.args:
+        return False
+    first = _string_expr_value(call.args[0].value)
+    return first == node_id
+
+
+def _is_link_statement_referencing(stmt: cst.SimpleStatementLine, node_id: str) -> bool:
+    if len(stmt.body) != 1:
+        return False
+
+    inner = stmt.body[0]
+    if not (isinstance(inner, cst.Expr) and isinstance(inner.value, cst.Call)):
+        return False
+    call = inner.value
+    if not _call_matches(call.func, "link"):
+        return False
+    if len(call.args) < 4:
+        return False
+
+    src = _string_expr_value(call.args[0].value)
+    tgt = _string_expr_value(call.args[2].value)
+    return src == node_id or tgt == node_id
 
 
 def _extract_spec_call_fields(call: cst.Call) -> dict[str, Any]:

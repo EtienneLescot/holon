@@ -67,6 +67,11 @@ body {
   min-width: 220px;
 }
 
+.holonNode-selected {
+  border-color: rgba(110, 168, 255, 0.7);
+  box-shadow: 0 0 0 2px rgba(110, 168, 255, 0.22);
+}
+
 .holonHandle {
   width: 10px;
   height: 10px;
@@ -178,6 +183,8 @@ body {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.55);
+  z-index: 10000;
+  pointer-events: all;
   display: flex;
   align-items: center;
   justify-content: center;

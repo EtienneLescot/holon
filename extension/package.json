@@ -22,6 +22,10 @@
       {
         "command": "holon.refreshDescriptions",
         "title": "Holon: Refresh Descriptions"
+      },
+      {
+        "command": "holon.reloadUi",
+        "title": "Holon: Reload UI"
       }
     ],
     "configuration": {

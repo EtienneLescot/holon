@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Any
 
 from holon.services.graph_parser import parse_graph
-from holon.services.patcher import add_link, add_spec_node, patch_node
+from holon.services.patcher import add_link, add_spec_node, delete_node, patch_node
 
 
 class _State:
@@ -164,6 +164,7 @@ def _make_handler(state: _State) -> type[BaseHTTPRequestHandler]:
                             "add_spec_node": "/api/add_spec_node",
                             "add_link": "/api/add_link",
                             "patch_node": "/api/patch_node",
+                            "delete_node": "/api/delete_node",
                         },
                         "ui_hint": "The UI runs on the Vite dev server (typically http://127.0.0.1:5173/). This devserver is API-only.",
                     },
@@ -262,6 +263,16 @@ def _make_handler(state: _State) -> type[BaseHTTPRequestHandler]:
                         node_name=node_name,
                         new_function_code=new_function_code,
                     )
+                    state.save()
+                    self._send_json(200, {"source": state.source})
+                    return
+
+                if self.path == "/api/delete_node":
+                    node_id = body.get("node_id")
+                    if not isinstance(node_id, str):
+                        raise ValueError("node_id must be a string")
+
+                    state.source = delete_node(state.source, node_id=node_id)
                     state.save()
                     self._send_json(200, {"source": state.source})
                     return

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import textwrap
 
-from holon.services.patcher import patch_node, patch_spec_node, rename_node
+from holon.services.patcher import delete_node, patch_node, patch_spec_node, rename_node
 
 
 def test_rename_node_updates_def_and_workflow_calls_only() -> None:
@@ -124,3 +124,57 @@ def test_patch_spec_node_updates_matching_spec_call() -> None:
     assert "\"spec:two\"" in updated
     assert "label=\"Tool\"" in updated
     assert "\"enabled\": True" in updated
+
+
+def test_delete_node_removes_spec_declaration_and_related_links() -> None:
+    source = textwrap.dedent(
+        """
+        from holon import node, spec, workflow, link
+
+        spec("spec:one", type="llm.model", label="Model", props={"temperature": 0.2})
+        spec("spec:two", type="tool.example", label="Tool")
+
+        @node
+        def a(x: int) -> int:
+            return x + 1
+
+        @workflow
+        def main():
+            link("node:a", "output", "spec:one", "input")
+            link("spec:one", "output", "spec:two", "input")
+            return a(1)
+        """
+    )
+
+    updated = delete_node(source, node_id="spec:one")
+    assert "spec(\"spec:one\"" not in updated
+    assert "link(\"node:a\", \"output\", \"spec:one\"" not in updated
+    assert "link(\"spec:one\", \"output\", \"spec:two\"" not in updated
+    # Other spec remains
+    assert "spec(\"spec:two\"" in updated
+
+
+def test_delete_node_removes_node_function_and_related_links() -> None:
+    source = textwrap.dedent(
+        """
+        from holon import node, workflow, link
+
+        @node
+        def a(x: int) -> int:
+            return x + 1
+
+        @node
+        def b(x: int) -> int:
+            return x + 2
+
+        @workflow
+        def main():
+            link("node:a", "output", "node:b", "input")
+            return b(a(1))
+        """
+    )
+
+    updated = delete_node(source, node_id="node:a")
+    assert "def a(" not in updated
+    assert "def b(" in updated
+    assert "link(\"node:a\", \"output\", \"node:b\", \"input\")" not in updated

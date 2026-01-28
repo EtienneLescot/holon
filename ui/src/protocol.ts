@@ -74,7 +74,14 @@ export const AiStatusSchema = z.object({
   message: z.string().optional(),
 });
 
-export const ToUiMessageSchema = z.union([GraphInitSchema, GraphUpdateSchema, GraphErrorSchema, AiStatusSchema]);
+export const AiPromptSchema = z.object({
+  type: z.literal("ai.prompt"),
+  nodeId: z.string(),
+  title: z.string(),
+  prompt: z.string(),
+});
+
+export const ToUiMessageSchema = z.union([GraphInitSchema, GraphUpdateSchema, GraphErrorSchema, AiStatusSchema, AiPromptSchema]);
 export type ToUiMessage = z.infer<typeof ToUiMessageSchema>;
 
 export const UiReadySchema = z.object({
@@ -99,6 +106,11 @@ export const UiNodeAiRequestSchema = z.object({
 
 export const UiNodeDescribeRequestSchema = z.object({
   type: z.literal("ui.node.describeRequest"),
+  nodeId: z.string(),
+});
+
+export const UiNodeDeleteRequestSchema = z.object({
+  type: z.literal("ui.node.deleteRequest"),
   nodeId: z.string(),
 });
 
@@ -136,6 +148,7 @@ export const ToExtensionMessageSchema = z.union([
   UiNodesChangedSchema,
   UiNodeAiRequestSchema,
   UiNodeDescribeRequestSchema,
+  UiNodeDeleteRequestSchema,
   UiEdgeCreatedSchema,
   UiNodeCreatedSchema,
 ]);

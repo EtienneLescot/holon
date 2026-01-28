@@ -21,6 +21,7 @@ from pydantic import BaseModel, ValidationError
 from holon.services.graph_parser import parse_graph
 from holon.services.patcher import add_link as add_link_source
 from holon.services.patcher import add_spec_node as add_spec_node_source
+from holon.services.patcher import delete_node as delete_node_source
 from holon.services.patcher import patch_node as patch_node_source
 from holon.services.patcher import patch_spec_node as patch_spec_node_source
 from holon.services.patcher import rename_node as rename_node_source
@@ -73,6 +74,11 @@ class _PatchSpecNodeParams(BaseModel):
     set_node_type: bool = False
     set_label: bool = False
     set_props: bool = False
+
+
+class _DeleteNodeParams(BaseModel):
+    source: str
+    node_id: str
 
 
 def main() -> None:
@@ -197,6 +203,17 @@ def handle_request(request: Any) -> dict[str, Any]:
                 set_node_type=params.set_node_type,
                 set_label=params.set_label,
                 set_props=params.set_props,
+            )
+            return {"id": request_id, "result": {"source": updated}}
+        except Exception as exc:  # noqa: BLE001 - return structured RPC errors
+            return {"id": request_id, "error": {"message": _format_error(exc)}}
+
+    if method == "delete_node":
+        try:
+            params = _parse_params(request.get("params"), _DeleteNodeParams)
+            updated = delete_node_source(
+                params.source,
+                node_id=params.node_id,
             )
             return {"id": request_id, "result": {"source": updated}}
         except Exception as exc:  # noqa: BLE001 - return structured RPC errors

@@ -271,6 +271,21 @@ export class RpcClient {
     return result["source"];
   }
 
+  public async deleteNode(source: string, nodeId: string): Promise<string> {
+    const response = await this.request({
+      method: "delete_node",
+      params: { source, node_id: nodeId },
+    });
+    if (response.error) {
+      throw new Error(response.error.message);
+    }
+    const result = response.result as unknown;
+    if (!isObject(result) || typeof result["source"] !== "string") {
+      throw new Error("Invalid delete_node response type");
+    }
+    return result["source"];
+  }
+
   public async patchSpecNode(input: {
     source: string;
     nodeId: string;

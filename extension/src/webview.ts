@@ -37,6 +37,10 @@ type WebviewToExtensionMessage =
       nodeId: string;
     }
   | {
+      type: "ui.node.deleteRequest";
+      nodeId: string;
+    }
+  | {
       type: "rpc.stop";
     };
 
@@ -109,6 +113,8 @@ export class HolonPanel {
     const column = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
 
     if (HolonPanel.currentPanel) {
+      // Also refresh HTML so rebuilt UI assets are picked up during development.
+      HolonPanel.currentPanel.reloadWebviewHtml();
       HolonPanel.currentPanel.panel.reveal(column);
       return;
     }
@@ -173,6 +179,9 @@ export class HolonPanel {
           case "ui.node.describeRequest":
             await this.onUiDescribeRequest(message.nodeId);
             return;
+          case "ui.node.deleteRequest":
+            await this.onUiDeleteRequest(message.nodeId);
+            return;
           case "rpc.stop":
             await this.onStop();
             return;
@@ -184,6 +193,16 @@ export class HolonPanel {
       null,
       this.disposables
     );
+  }
+
+  public reloadWebviewHtml(): void {
+    try {
+      this.panel.webview.html = this.getHtml(this.panel.webview, this.extensionUri);
+      this.output.appendLine("HolonPanel: webview HTML reloaded");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.output.appendLine(`HolonPanel: failed to reload webview HTML: ${message}`);
+    }
   }
 
   public dispose(): void {
@@ -555,6 +574,58 @@ export class HolonPanel {
     this.rpc = undefined;
     if (rpc) {
       await rpc.stop();
+    }
+  }
+
+  private async onUiDeleteRequest(nodeId: string): Promise<void> {
+    this.output.appendLine(`ui.node.deleteRequest: ${nodeId}`);
+
+    if (!(nodeId.startsWith("node:") || nodeId.startsWith("spec:"))) {
+      this.postMessage({ type: "ai.status", nodeId, status: "error", message: "Delete supports node:* and spec:* only." });
+      return;
+    }
+
+    const targetUri = this.lastHolonDocumentUri ?? vscode.window.activeTextEditor?.document.uri;
+    if (!targetUri) {
+      this.postMessage({ type: "ai.status", nodeId, status: "error", message: "No active Holon document." });
+      return;
+    }
+
+    const doc = await vscode.workspace.openTextDocument(targetUri);
+    const editor =
+      vscode.window.activeTextEditor?.document.uri.toString() === targetUri.toString()
+        ? vscode.window.activeTextEditor
+        : await vscode.window.showTextDocument(doc, { preview: false, preserveFocus: true });
+
+    const source = doc.getText();
+    this.postMessage({ type: "ai.status", nodeId, status: "working", message: "Deleting..." });
+
+    try {
+      const rpc = await this.ensureRpc();
+      const updated = await rpc.deleteNode(source, nodeId);
+
+      const fullRange = new vscode.Range(doc.positionAt(0), doc.positionAt(source.length));
+      const ok = await editor.edit((editBuilder) => {
+        editBuilder.replace(fullRange, updated);
+      });
+      if (!ok) {
+        throw new Error("Editor rejected the edit");
+      }
+
+      // Drop UI-only metadata.
+      this.positions.delete(nodeId);
+      this.annotations.delete(nodeId);
+      this.schedulePersistPositions();
+      this.schedulePersistAnnotations();
+
+      // Refresh graph (parser watcher will also run, but this is immediate).
+      this.scheduleParse(doc, { reason: "ui.node.deleteRequest" });
+
+      this.postMessage({ type: "ai.status", nodeId, status: "done", message: "Deleted" });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.output.appendLine(`Delete error: ${message}`);
+      this.postMessage({ type: "ai.status", nodeId, status: "error", message });
     }
   }
 
