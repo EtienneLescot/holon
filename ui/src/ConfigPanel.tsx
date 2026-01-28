@@ -5,6 +5,8 @@ type Props = {
   node: CoreNode | null;
   onClose: () => void;
   onDelete?: (nodeId: string) => void;
+  onPatch?: (nodeId: string, props: Record<string, any>) => void;
+  onOpenCredentials?: (provider: string) => void;
 };
 
 function prettyJson(value: unknown): string {
@@ -64,6 +66,15 @@ export function ConfigPanel(props: Props): JSX.Element {
                   {props.node.nodeType}
                 </span>
               ) : null}
+              {props.node.nodeType === "llm.model" && props.onOpenCredentials && (
+                <button
+                  type="button"
+                  onClick={() => props.onOpenCredentials!((props.node?.props?.provider as string) || "openai")}
+                  className="px-4 py-2 rounded-xl bg-white/10 hover:bg-blue-500/20 text-white text-[10px] font-black uppercase tracking-[0.2em] border border-white/10 hover:border-blue-500/30 transition-all ml-auto"
+                >
+                  Configure Credentials
+                </button>
+              )}
             </div>
 
             {/* Nav Tabs */}
@@ -122,13 +133,48 @@ export function ConfigPanel(props: Props): JSX.Element {
                     {props.node.props && (
                       <section className="space-y-8">
                         <h3 className="text-[11px] font-black uppercase tracking-[0.5em] text-white/10">State Properties</h3>
-                        <div className="rounded-[32px] bg-black/50 border border-white/5 p-10 shadow-2xl relative overflow-hidden group">
-                           <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-30 transition-opacity">
-                              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 11v-1a2 2 0 012-2h12a2 2 0 012 2v1"></path><path d="M4 13v1a2 2 0 002 2h12a2 2 0 002-2v-1"></path></svg>
-                           </div>
-                          <pre className="text-[12px] leading-7 text-blue-200/30 font-mono whitespace-pre-wrap">
-                            {propsText}
-                          </pre>
+                        <div className="space-y-6">
+                           {Object.entries(props.node.props).map(([key, value]) => (
+                             <div key={key} className="space-y-3">
+                               <div className="flex justify-between items-center px-1">
+                                 <label className="text-[10px] font-black uppercase tracking-[0.2em] text-white/30">{key}</label>
+                               </div>
+                               <textarea
+                                 className="w-full bg-black/40 border border-white/5 rounded-3xl p-6 text-[13px] text-blue-100/80 font-medium leading-relaxed focus:outline-none focus:border-blue-500/30 focus:bg-blue-500/5 transition-all resize-none overflow-hidden"
+                                 defaultValue={typeof value === 'string' ? value : JSON.stringify(value)}
+                                 onBlur={(e) => {
+                                   const newVal = e.target.value;
+                                   let parsedVal: any = newVal;
+                                   if (typeof value === 'number') {
+                                       parsedVal = Number(newVal);
+                                   } else if (typeof value === 'boolean') {
+                                       parsedVal = newVal.toLowerCase() === 'true';
+                                   } else if (typeof value === 'object' && value !== null) {
+                                       try {
+                                           parsedVal = JSON.parse(newVal);
+                                       } catch {
+                                           // fallback to original or string
+                                       }
+                                   }
+                                   
+                                   if (JSON.stringify(parsedVal) !== JSON.stringify(value)) {
+                                       props.onPatch?.(props.node!.id, { ...props.node!.props, [key]: parsedVal });
+                                   }
+                                 }}
+                                 onInput={(e) => {
+                                   const target = e.target as HTMLTextAreaElement;
+                                   target.style.height = 'auto';
+                                   target.style.height = target.scrollHeight + 'px';
+                                 }}
+                                 ref={(el) => {
+                                   if (el) {
+                                     el.style.height = 'auto';
+                                     el.style.height = el.scrollHeight + 'px';
+                                   }
+                                 }}
+                               />
+                             </div>
+                           ))}
                         </div>
                       </section>
                     )}

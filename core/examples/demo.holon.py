@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from holon import node, spec, workflow, link
-spec("spec:llm.model:aa92f5e2-4ffe-48a9-97a3-a91eefb1fc4a", type = "llm.model", label = "LLM Model", props = {"provider": "openai", "model": "gpt-4o-mini"})
+spec("spec:langchain.agent:1992b72f-78a7-4e0a-8f2f-9c7bbea81344", type = "langchain.agent", label = "LangChain Agent", props = {"system_prompt": "You are a helpful assistant.", "user_prompt": "Tell me a story about a brave robot."})
+spec("spec:langchain.agent:935fae62-2635-49d1-9b9d-49d4f899ed43", type = "langchain.agent", label = "LangChain Agent", props = {"system_prompt": "You are a helpful assistant.", "user_prompt": "Tell me a story about a brave robot."})
+spec("spec:llm.model:aa92f5e2-4ffe-48a9-97a3-a91eefb1fc4a", type = "llm.model", label = "LLM Model", props = {"model_name": "gpt-4o", "temperature": 0.7, "provider": "openai"})
 spec("spec:parser.json:55773ecd-02c4-419e-b754-091e7d54f06b", type = "parser.json", label = "JSON Parser", props = {"schema": {}})
-spec("spec:langchain.agent:9c36310c-95e5-4b41-885f-62d0200f7f4f", type = "langchain.agent", label = "LangChain Agent", props = {"systemPrompt": "You are a helpful assistant.", "promptTemplate": "{input}", "temperature": 0.2, "maxTokens": 1024, "agentType": "tool-calling"})
+spec("spec:langchain.agent:9c36310c-95e5-4b41-885f-62d0200f7f4f", type = "langchain.agent", label = "LangChain Agent", props = {"system_prompt": "You are a helpful assistant.", "user_prompt": "What is the capital of France?"})
 
 
 @node
@@ -27,4 +29,5 @@ async def main() -> str:
     link("node:analyze", "output", "spec:langchain.agent:9c36310c-95e5-4b41-885f-62d0200f7f4f", "input")
     link("node:analyze", "output", "spec:langchain.agent:9c36310c-95e5-4b41-885f-62d0200f7f4f", "memory")
     link("spec:llm.model:aa92f5e2-4ffe-48a9-97a3-a91eefb1fc4a", "llm", "spec:langchain.agent:9c36310c-95e5-4b41-885f-62d0200f7f4f", "llm")
+    link("spec:parser.json:55773ecd-02c4-419e-b754-091e7d54f06b", "parser", "spec:langchain.agent:9c36310c-95e5-4b41-885f-62d0200f7f4f", "input")
     return await summarize(y)

@@ -1,43 +1,6 @@
-import { ToExtensionMessageSchema } from "./protocol";
+import { ToExtensionMessageSchema, type CoreGraph } from "./protocol";
 import { getVsCodeApi, registerBrowserBridge } from "./vscodeBridge";
-import { inferPorts } from "./ports";
-
-type CoreGraph = {
-  nodes: Array<{
-    id: string;
-    name: string;
-    kind: "node" | "workflow" | "spec";
-    position?: { x: number; y: number } | null;
-    label?: string | null;
-    node_type?: string | null;
-    props?: Record<string, unknown> | null;
-  }>;
-  edges: Array<{
-    source: string;
-    target: string;
-    source_port?: string | null;
-    target_port?: string | null;
-    kind?: "code" | "link" | null;
-  }>;
-};
-
-type UiGraphNode = {
-  id: string;
-  name: string;
-  kind: "node" | "workflow" | "spec";
-  position?: { x: number; y: number } | null;
-  label?: string | undefined;
-  nodeType?: string;
-  ports?: Array<{ id: string; direction: "input" | "output"; kind?: string; label?: string; multi?: boolean }>;
-};
-
-type UiGraphEdge = {
-  source: string;
-  target: string;
-  sourcePort?: string | null;
-  targetPort?: string | null;
-  kind?: "code" | "link";
-};
+import { prepareUiGraph, extractTopLevelFunction } from "./logic";
 
 const POSITIONS_KEY_PREFIX = "holon.positions.v1:";
 
@@ -47,71 +10,6 @@ function positionsKey(scope: string): string {
 
 function postToUi(message: unknown): void {
   window.postMessage(message, "*");
-}
-
-function extractTopLevelFunction(source: string, name: string): string | null {
-  const lines = source.split(/\r?\n/);
-
-  const defRe = new RegExp(`^(async\\s+def|def)\\s+${name.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}\\s*\\(`);
-
-  let defLine = -1;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (line === undefined) {
-      continue;
-    }
-    if (line.startsWith(" ") || line.startsWith("\t")) {
-      continue;
-    }
-    if (defRe.test(line.trimEnd())) {
-      defLine = i;
-      break;
-    }
-  }
-  if (defLine === -1) {
-    return null;
-  }
-
-  // Include contiguous decorators immediately above.
-  let start = defLine;
-  for (let i = defLine - 1; i >= 0; i--) {
-    const l = lines[i];
-    if (l === undefined) {
-      break;
-    }
-    if (l.startsWith(" ") || l.startsWith("\t")) {
-      break;
-    }
-    const t = l.trim();
-    if (t.startsWith("@")) {
-      start = i;
-      continue;
-    }
-    if (t === "") {
-      // allow blank line between decorators and def? keep simple: stop.
-      break;
-    }
-    break;
-  }
-
-  // End at next top-level statement.
-  let end = lines.length;
-  for (let i = defLine + 1; i < lines.length; i++) {
-    const l = lines[i];
-    if (l === undefined) {
-      continue;
-    }
-    if (l.trim() === "") {
-      continue;
-    }
-    const isTopLevel = !(l.startsWith(" ") || l.startsWith("\t"));
-    if (isTopLevel) {
-      end = i;
-      break;
-    }
-  }
-
-  return lines.slice(start, end).join("\n").trimEnd() + "\n";
 }
 
 function buildAiEditPrompt(input: {
@@ -240,32 +138,6 @@ function pickWorkflowName(graph: CoreGraph | undefined): string | undefined {
   return main?.name ?? workflows[0]?.name;
 }
 
-function toUiGraph(core: CoreGraph, positions: Record<string, { x: number; y: number }>): { nodes: UiGraphNode[]; edges: UiGraphEdge[] } {
-  const nodes: UiGraphNode[] = core.nodes.map((n) => {
-    const nodeType = typeof n.node_type === "string" ? n.node_type : undefined;
-    const pos = positions[n.id];
-    return {
-      id: n.id,
-      name: n.name,
-      kind: n.kind,
-      position: pos ? { x: pos.x, y: pos.y } : null,
-      ...(typeof n.label === "string" ? { label: n.label } : {}),
-      ...(nodeType ? { nodeType } : {}),
-      ports: inferPorts({ kind: n.kind, ...(nodeType ? { nodeType } : {}) }),
-    };
-  });
-
-  const edges: UiGraphEdge[] = core.edges.map((e) => ({
-    source: e.source,
-    target: e.target,
-    sourcePort: e.source_port ?? null,
-    targetPort: e.target_port ?? null,
-    kind: e.kind ?? "code",
-  }));
-
-  return { nodes, edges };
-}
-
 class BrowserDevBridge {
   private source: string = "";
   private fileScope: string = "memory";
@@ -279,6 +151,16 @@ class BrowserDevBridge {
     this.source = res.source;
     this.fileScope = res.file ?? "memory";
     this.positions = loadPositions(this.fileScope);
+
+    // Fetch initial credentials
+    try {
+      const creds = await fetchJson<Record<string, Record<string, string>>>("/api/credentials");
+      // How to send this to UI? Maybe a new message type or just send it as part of init.
+      // For now, let's just make sure UI can ask or we send a 'credentials.update'
+      postToUi({ type: "credentials.update", credentials: creds });
+    } catch (e) {
+      console.error("Failed to fetch credentials", e);
+    }
   }
 
   startFilePolling(intervalMs: number = 350): void {
@@ -313,8 +195,8 @@ class BrowserDevBridge {
     const res = await fetchJson<{ graph: CoreGraph }>("/api/parse", { method: "POST", body: "{}" });
     this.lastGraph = res.graph;
 
-    const ui = toUiGraph(res.graph, this.positions);
-    postToUi({ type: this.hasSentInit ? "graph.update" : "graph.init", nodes: ui.nodes, edges: ui.edges, reason });
+    const { nodes, edges } = prepareUiGraph(res.graph, this.positions, {});
+    postToUi({ type: this.hasSentInit ? "graph.update" : "graph.init", nodes, edges, reason });
     this.hasSentInit = true;
   }
 
@@ -339,16 +221,24 @@ class BrowserDevBridge {
       savePositions(this.fileScope, next);
       // Re-emit graph quickly to reflect positions.
       if (this.lastGraph) {
-        const ui = toUiGraph(this.lastGraph, this.positions);
-        postToUi({ type: "graph.update", nodes: ui.nodes, edges: ui.edges });
+        const { nodes, edges } = prepareUiGraph(this.lastGraph, this.positions, {});
+        postToUi({ type: "graph.update", nodes, edges });
       }
+      return;
+    }
+
+    if (msg.type === "ui.credentials.set") {
+      await fetchJson("/api/credentials", {
+        method: "POST",
+        body: JSON.stringify({ provider: msg.provider, credentials: msg.credentials }),
+      });
       return;
     }
 
     if (msg.type === "ui.node.aiRequest") {
       // Browser mode: generate a copyable prompt for the user to run in their own agent.
       const node = this.lastGraph?.nodes.find((n) => n.id === msg.nodeId);
-      const nodeType = node && typeof node.node_type === "string" ? node.node_type : undefined;
+      const nodeType = node && typeof node.nodeType === "string" ? node.nodeType : undefined;
       const label = node && typeof node.label === "string" ? node.label : undefined;
       const props = node && node.props && typeof node.props === "object" ? (node.props as Record<string, unknown>) : null;
 
@@ -364,7 +254,7 @@ class BrowserDevBridge {
         nodeId: msg.nodeId,
         instruction: msg.instruction,
         currentProps: props,
-        functionCode,
+        functionCode: functionCode || null,
       };
       if (nodeType) {
         args.currentNodeType = nodeType;
@@ -401,13 +291,13 @@ class BrowserDevBridge {
         kind: node.kind,
         name: node.name,
         props: node.props && typeof node.props === "object" ? (node.props as Record<string, unknown>) : null,
-        functionCode,
+        functionCode: functionCode || null,
       };
       if (typeof node.label === "string" && node.label) {
         describeArgs.label = node.label;
       }
-      if (typeof node.node_type === "string" && node.node_type) {
-        describeArgs.nodeType = node.node_type;
+      if (typeof node.nodeType === "string" && node.nodeType) {
+        describeArgs.nodeType = node.nodeType;
       }
 
       const built = buildDescribePrompt(describeArgs);
@@ -434,6 +324,24 @@ class BrowserDevBridge {
       }
 
       await this.parseAndSend("ui.node.deleteRequest");
+      return;
+    }
+
+    if (msg.type === "ui.node.patchRequest") {
+      await fetchJson<{ source: string }>("/api/patch_spec_node", {
+        method: "POST",
+        body: JSON.stringify({
+          node_id: msg.nodeId,
+          props: msg.props ?? null,
+          label: msg.label ?? null,
+          set_props: msg.props !== undefined,
+          set_label: msg.label !== undefined,
+        }),
+      }).then((r) => {
+        this.source = r.source;
+      });
+
+      await this.parseAndSend("ui.node.patchRequest");
       return;
     }
 

@@ -21,9 +21,9 @@ export const PortKindSchema = z.union([
 export const PortSpecSchema = z.object({
   id: z.string(),
   direction: PortDirectionSchema,
-  kind: PortKindSchema.optional(),
-  label: z.string().optional(),
-  multi: z.boolean().optional(),
+  kind: PortKindSchema.nullable().optional(),
+  label: z.string().nullable().optional(),
+  multi: z.boolean().nullable().optional(),
 });
 
 export const CoreNodeSchema = z.object({
@@ -31,12 +31,12 @@ export const CoreNodeSchema = z.object({
   name: z.string(),
   kind: HolonKindSchema,
   position: PositionSchema.nullable().optional(),
-  label: z.string().optional(),
-  nodeType: z.string().optional(),
-  props: z.record(z.unknown()).optional(),
-  summary: z.string().optional(),
-  badges: z.array(z.string()).optional(),
-  ports: z.array(PortSpecSchema).optional(),
+  label: z.string().nullable().optional(),
+  nodeType: z.string().nullable().optional(),
+  props: z.record(z.unknown()).nullable().optional(),
+  summary: z.string().nullable().optional(),
+  badges: z.array(z.string()).nullable().optional(),
+  ports: z.array(PortSpecSchema).nullable().optional(),
 });
 
 export type CoreNode = z.infer<typeof CoreNodeSchema>;
@@ -46,10 +46,17 @@ export const CoreEdgeSchema = z.object({
   target: z.string(),
   sourcePort: z.string().nullable().optional(),
   targetPort: z.string().nullable().optional(),
-  kind: z.union([z.literal("code"), z.literal("link")]).optional(),
+  kind: z.union([z.literal("code"), z.literal("link")]).nullable().optional(),
 });
 
 export type CoreEdge = z.infer<typeof CoreEdgeSchema>;
+
+export const CoreGraphSchema = z.object({
+  nodes: z.array(CoreNodeSchema),
+  edges: z.array(CoreEdgeSchema),
+});
+
+export type CoreGraph = z.infer<typeof CoreGraphSchema>;
 
 export const GraphInitSchema = z.object({
   type: z.literal("graph.init"),
@@ -82,7 +89,19 @@ export const AiPromptSchema = z.object({
   prompt: z.string(),
 });
 
-export const ToUiMessageSchema = z.union([GraphInitSchema, GraphUpdateSchema, GraphErrorSchema, AiStatusSchema, AiPromptSchema]);
+export const CredentialsUpdateSchema = z.object({
+  type: z.literal("credentials.update"),
+  credentials: z.record(z.record(z.string())),
+});
+
+export const ToUiMessageSchema = z.union([
+  GraphInitSchema,
+  GraphUpdateSchema,
+  GraphErrorSchema,
+  AiStatusSchema,
+  AiPromptSchema,
+  CredentialsUpdateSchema,
+]);
 export type ToUiMessage = z.infer<typeof ToUiMessageSchema>;
 
 export const UiReadySchema = z.object({
@@ -115,6 +134,13 @@ export const UiNodeDeleteRequestSchema = z.object({
   nodeId: z.string(),
 });
 
+export const UiNodePatchRequestSchema = z.object({
+  type: z.literal("ui.node.patchRequest"),
+  nodeId: z.string(),
+  props: z.record(z.unknown()).optional(),
+  label: z.string().optional(),
+});
+
 export const UiEdgeCreatedSchema = z.object({
   type: z.literal("ui.edgeCreated"),
   edge: z.object({
@@ -144,13 +170,21 @@ export const UiNodeCreatedSchema = z.object({
   position: PositionSchema.optional(),
 });
 
+export const UiCredentialsRequestSchema = z.object({
+  type: z.literal("ui.credentials.set"),
+  provider: z.string(),
+  credentials: z.record(z.string()),
+});
+
 export const ToExtensionMessageSchema = z.union([
   UiReadySchema,
   UiNodesChangedSchema,
   UiNodeAiRequestSchema,
   UiNodeDescribeRequestSchema,
   UiNodeDeleteRequestSchema,
+  UiNodePatchRequestSchema,
   UiEdgeCreatedSchema,
   UiNodeCreatedSchema,
+  UiCredentialsRequestSchema,
 ]);
 export type ToExtensionMessage = z.infer<typeof ToExtensionMessageSchema>;

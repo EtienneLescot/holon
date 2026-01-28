@@ -2,6 +2,8 @@ import * as vscode from "vscode";
 import * as fs from "node:fs";
 
 import { RpcClient, type CoreEdge, type CoreGraph, type CoreNode, type CorePosition } from "./rpcClient";
+import { prepareUiGraph, extractTopLevelFunction, validateSpecProps } from "../../ui/src/logic";
+import { PortSpec } from "../../ui/src/ports";
 
 type WebviewToExtensionMessage =
   | {
@@ -39,6 +41,12 @@ type WebviewToExtensionMessage =
   | {
       type: "ui.node.deleteRequest";
       nodeId: string;
+    }
+  | {
+      type: "ui.node.patchRequest";
+      nodeId: string;
+      props?: Record<string, unknown> | null;
+      label?: string | null;
     }
   | {
       type: "rpc.stop";
@@ -181,6 +189,9 @@ export class HolonPanel {
             return;
           case "ui.node.deleteRequest":
             await this.onUiDeleteRequest(message.nodeId);
+            return;
+          case "ui.node.patchRequest":
+            await this.onUiPatchRequest(message.nodeId, message.props ?? null, message.label ?? null);
             return;
           case "rpc.stop":
             await this.onStop();
@@ -629,6 +640,49 @@ export class HolonPanel {
     }
   }
 
+  private async onUiPatchRequest(
+    nodeId: string,
+    props: Record<string, unknown> | null,
+    label: string | null
+  ): Promise<void> {
+    this.output.appendLine(`ui.node.patchRequest: ${nodeId}`);
+
+    if (!nodeId.startsWith("spec:")) {
+      return;
+    }
+
+    const targetUri = this.lastHolonDocumentUri ?? vscode.window.activeTextEditor?.document?.uri;
+    if (!targetUri) {
+      return;
+    }
+
+    const doc = await vscode.workspace.openTextDocument(targetUri);
+    const editor =
+      vscode.window.activeTextEditor?.document.uri.toString() === targetUri.toString()
+        ? vscode.window.activeTextEditor
+        : await vscode.window.showTextDocument(doc, { preview: false, preserveFocus: true });
+
+    const source = doc.getText();
+    const rpc = await this.ensureRpc();
+
+    const updated = await rpc.patchSpecNode({
+      source,
+      nodeId,
+      label: label,
+      props: props,
+      setLabel: label !== null,
+      setProps: props !== null,
+    });
+
+    const fullRange = new vscode.Range(doc.positionAt(0), doc.positionAt(source.length));
+    const ok = await editor.edit((editBuilder) => {
+      editBuilder.replace(fullRange, updated);
+    });
+    if (!ok) {
+      throw new Error("Editor rejected the edit");
+    }
+  }
+
   private postMessage(message: ExtensionToWebviewMessage): void {
     void this.panel.webview.postMessage(message);
   }
@@ -795,64 +849,22 @@ export class HolonPanel {
       nodeType?: string;
       summary?: string;
       badges?: string[];
+      ports?: PortSpec[];
     }>;
     edges: Array<{ source: string; target: string; sourcePort?: string | null; targetPort?: string | null; kind?: "code" | "link" }>;
   } {
-    const nodes: Array<{
-      id: string;
-      name: string;
-      kind: "node" | "workflow" | "spec";
-      position?: { x: number; y: number } | null;
-      label?: string;
-      nodeType?: string;
-      summary?: string;
-      badges?: string[];
-    }> = [];
+    const positions = Object.fromEntries(this.positions.entries());
+    const annotations = Object.fromEntries(this.annotations.entries());
 
-    // 1) Nodes from code.
-    for (const n of graph.nodes) {
-      const merged = this.mergePosition(n);
-      const kind = merged.kind;
-      const label = (merged as unknown as { label?: string | null }).label;
-      const nodeType = (merged as unknown as { node_type?: string | null; nodeType?: string | null }).node_type ?? (merged as unknown as { nodeType?: string | null }).nodeType;
-      const nodeTypeValue = typeof nodeType === "string" ? nodeType : undefined;
-      const ann = this.annotations.get(merged.id);
-      const summary = ann?.summary;
-      const badges = ann?.badges;
-      nodes.push({
-        ...merged,
-        kind: kind as "node" | "workflow" | "spec",
-        label: typeof label === "string" ? label : `${kind}: ${merged.name}`,
-        ...(nodeTypeValue ? { nodeType: nodeTypeValue } : {}),
-        ...(typeof summary === "string" ? { summary } : {}),
-        ...(Array.isArray(badges) ? { badges: badges.filter((b) => typeof b === "string") } : {}),
-      });
-    }
+    const { nodes, edges } = prepareUiGraph(graph, positions, annotations);
 
-    // 2) Edges from code (including explicit link() edges).
-    const edges: Array<{ source: string; target: string; sourcePort?: string | null; targetPort?: string | null; kind?: "code" | "link" }> = [];
-    for (const e of graph.edges as unknown as Array<{ source: string; target: string; source_port?: string | null; target_port?: string | null; kind?: "code" | "link" | null }>) {
-      edges.push({
-        source: e.source,
-        target: e.target,
-        sourcePort: e.source_port ?? null,
-        targetPort: e.target_port ?? null,
-        kind: e.kind ?? "code",
-      });
-    }
-
-    // Deduplicate edges by full key.
-    const seenEdge = new Set<string>();
-    const deduped = edges.filter((e) => {
-      const k = `${e.kind ?? "code"}:${e.source}:${e.sourcePort ?? ""}->${e.target}:${e.targetPort ?? ""}`;
-      if (seenEdge.has(k)) {
-        return false;
-      }
-      seenEdge.add(k);
-      return true;
-    });
-
-    return { nodes, edges: deduped };
+    return {
+      nodes: nodes.map((n) => ({
+        ...n,
+        label: n.label || `${n.kind}: ${n.name}`,
+      })),
+      edges,
+    };
   }
 
   private findNodeInfo(nodeId: string): NodeInfo | undefined {
@@ -1168,71 +1180,6 @@ function isHolonDocument(doc: vscode.TextDocument): boolean {
   return doc.uri.scheme === "file" && doc.fileName.endsWith(".holon.py");
 }
 
-function extractTopLevelFunction(source: string, functionName: string): string | undefined {
-  const lines = source.split(/\r?\n/);
-
-  const defRe = new RegExp(`^(?<indent>\\s*)(async\\s+def|def)\\s+${escapeRegExp(functionName)}\\s*\\(`);
-
-  let defLine = -1;
-  let indent = "";
-  for (let i = 0; i < lines.length; i += 1) {
-    const m = lines[i]?.match(defRe);
-    if (!m) {
-      continue;
-    }
-    indent = (m.groups?.["indent"] ?? "") as string;
-    if (indent.length !== 0) {
-      continue;
-    }
-    defLine = i;
-    break;
-  }
-
-  if (defLine === -1) {
-    return undefined;
-  }
-
-  // Include decorators above the def.
-  let start = defLine;
-  for (let i = defLine - 1; i >= 0; i -= 1) {
-    const line = lines[i] ?? "";
-    if (line.startsWith("@")) {
-      start = i;
-      continue;
-    }
-    if (line.trim() === "") {
-      // Allow blank lines between decorators and def.
-      start = i;
-      continue;
-    }
-    break;
-  }
-  // Move forward to first decorator/def line (skip leading blanks we may have included).
-  while (start < defLine && (lines[start]?.trim() ?? "") === "") {
-    start += 1;
-  }
-
-  // Find end: next top-level def/class/decorator.
-  let end = lines.length;
-  const boundaryRe = /^(@|def\b|async\s+def\b|class\b)/;
-  for (let i = defLine + 1; i < lines.length; i += 1) {
-    const line = lines[i] ?? "";
-    if (line.length === 0) {
-      continue;
-    }
-    if (!line.startsWith(" ") && !line.startsWith("\t") && boundaryRe.test(line)) {
-      end = i;
-      break;
-    }
-  }
-
-  return lines.slice(start, end).join("\n").trimEnd() + "\n";
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 function isPositionsStore(
   value: unknown
 ): value is { version: 1; files: Record<string, Record<string, CorePosition>> } {
@@ -1436,51 +1383,6 @@ function describeType(value: unknown): string {
   return typeof value;
 }
 
-function validateSpecPropsForKnownType(nodeType: string, props: Record<string, unknown>): void {
-  // Minimal, conservative checks for common built-in spec types.
-  // Unknown keys are allowed; this is only to catch obviously malformed JSON.
-  const ensureString = (k: string) => {
-    if (props[k] !== undefined && typeof props[k] !== "string") {
-      throw new Error(`props.${k} must be a string`);
-    }
-  };
-  const ensureNumber = (k: string) => {
-    if (props[k] !== undefined && typeof props[k] !== "number") {
-      throw new Error(`props.${k} must be a number`);
-    }
-  };
-  const ensureObject = (k: string) => {
-    if (props[k] !== undefined && !isRecord(props[k])) {
-      throw new Error(`props.${k} must be an object`);
-    }
-  };
-
-  switch (nodeType) {
-    case "langchain.agent":
-      ensureString("systemPrompt");
-      ensureString("promptTemplate");
-      ensureNumber("temperature");
-      ensureNumber("maxTokens");
-      ensureString("agentType");
-      return;
-    case "llm.model":
-      ensureString("provider");
-      ensureString("model");
-      return;
-    case "memory.buffer":
-      ensureNumber("maxMessages");
-      return;
-    case "tool.example":
-      ensureString("name");
-      return;
-    case "parser.json":
-      ensureObject("schema");
-      return;
-    default:
-      return;
-  }
-}
-
 function validateSpecPatch(patch: Record<string, unknown>, currentType?: string | undefined): SpecPatch {
   const allowed = new Set(["type", "label", "props"]);
   const unknownKeys = Object.keys(patch).filter((k) => !allowed.has(k));
@@ -1508,7 +1410,7 @@ function validateSpecPatch(patch: Record<string, unknown>, currentType?: string 
     // Optional: validate some known types to avoid common bad outputs.
     const typeToCheck = (typeof patch["type"] === "string" ? (patch["type"] as string) : currentType) ?? undefined;
     if (typeToCheck && v !== null && isRecord(v)) {
-      validateSpecPropsForKnownType(typeToCheck, v);
+      validateSpecProps(typeToCheck, v);
     }
   }
 

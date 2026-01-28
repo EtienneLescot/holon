@@ -32,7 +32,17 @@ from pathlib import Path
 from typing import Any
 
 from holon.services.graph_parser import parse_graph
-from holon.services.patcher import add_link, add_spec_node, delete_node, patch_node
+from holon.services.patcher import (
+    add_link,
+    add_spec_node,
+    delete_node,
+    patch_node,
+    patch_spec_node,
+)
+from holon.library.credentials import credentials_manager
+
+
+class _State:
 
 
 class _State:
@@ -161,9 +171,11 @@ def _make_handler(state: _State) -> type[BaseHTTPRequestHandler]:
                         "endpoints": {
                             "source": "/api/source",
                             "parse": "/api/parse",
+                            "credentials": "/api/credentials",
                             "add_spec_node": "/api/add_spec_node",
                             "add_link": "/api/add_link",
                             "patch_node": "/api/patch_node",
+                            "patch_spec_node": "/api/patch_spec_node",
                             "delete_node": "/api/delete_node",
                         },
                         "ui_hint": "The UI runs on the Vite dev server (typically http://127.0.0.1:5173/). This devserver is API-only.",
@@ -179,6 +191,17 @@ def _make_handler(state: _State) -> type[BaseHTTPRequestHandler]:
                         "file": str(state.file_path) if state.file_path is not None else None,
                     },
                 )
+                return
+            if self.path.startswith("/api/credentials"):
+                provider = self.path.split("/")[-1] if "/" in self.path else None
+                if provider == "credentials":
+                    provider = None
+                
+                if provider:
+                    self._send_json(200, credentials_manager.get_credentials(provider))
+                else:
+                    # In a real app we might not want to send everything back
+                    self._send_json(200, credentials_manager._store)
                 return
             self._send_json(404, {"error": "not_found"})
 
@@ -206,6 +229,15 @@ def _make_handler(state: _State) -> type[BaseHTTPRequestHandler]:
                 if self.path == "/api/parse":
                     graph = parse_graph(state.source)
                     self._send_json(200, {"graph": graph.model_dump()})
+                    return
+
+                if self.path == "/api/credentials":
+                    provider = body.get("provider")
+                    creds = body.get("credentials")
+                    if not isinstance(provider, str) or not isinstance(creds, dict):
+                        raise ValueError("provider and credentials are required")
+                    credentials_manager.set_credentials(provider, creds)
+                    self._send_json(200, {"ok": True})
                     return
 
                 if self.path == "/api/add_spec_node":
@@ -262,6 +294,32 @@ def _make_handler(state: _State) -> type[BaseHTTPRequestHandler]:
                         state.source,
                         node_name=node_name,
                         new_function_code=new_function_code,
+                    )
+                    state.save()
+                    self._send_json(200, {"source": state.source})
+                    return
+
+                if self.path == "/api/patch_spec_node":
+                    node_id = body.get("node_id")
+                    node_type = body.get("node_type")
+                    label = body.get("label")
+                    props = body.get("props")
+                    set_node_type = body.get("set_node_type", False)
+                    set_label = body.get("set_label", False)
+                    set_props = body.get("set_props", False)
+
+                    if not isinstance(node_id, str):
+                        raise ValueError("node_id must be a string")
+
+                    state.source = patch_spec_node(
+                        state.source,
+                        node_id=node_id,
+                        node_type=node_type,
+                        label=label,
+                        props=props,
+                        set_node_type=set_node_type,
+                        set_label=set_label,
+                        set_props=set_props,
                     )
                     state.save()
                     self._send_json(200, {"source": state.source})

@@ -24,7 +24,6 @@ export const SPEC_TYPE_REGISTRY: Record<string, SpecTypeRegistryEntry> = {
       { id: "llm", direction: "input", kind: "llm", label: "llm" },
       { id: "memory", direction: "input", kind: "memory", label: "memory" },
       { id: "tools", direction: "input", kind: "tool", label: "tools", multi: true },
-      { id: "outputParser", direction: "input", kind: "parser", label: "parser" },
       { id: "output", direction: "output", kind: "data", label: "output" },
     ],
   },

@@ -23,6 +23,7 @@ import { ToUiMessageSchema, type CoreEdge, type CoreNode } from "./protocol";
 import { postToExtension } from "./vscodeBridge";
 import { inferPorts, type PortSpec } from "./ports";
 import { ConfigPanel } from "./ConfigPanel";
+import { CredentialsModal } from "./CredentialsModal";
 
 type UiNodeData = {
   label: string;
@@ -62,10 +63,10 @@ function toReactFlowNodes(
         ? n.ports.map((p) => {
             const out: PortSpec = {
               id: p.id,
-              direction: p.direction,
+              direction: p.direction as "input" | "output",
             };
             if (typeof p.kind === "string") {
-              out.kind = p.kind;
+              out.kind = p.kind as any;
             }
             if (typeof p.label === "string") {
               out.label = p.label;
@@ -75,7 +76,7 @@ function toReactFlowNodes(
             }
             return out;
           })
-        : inferPorts({ kind: n.kind, nodeType: n.nodeType });
+        : inferPorts({ kind: n.kind, nodeType: n.nodeType ?? undefined });
     const summary = n.summary;
     const badges = n.badges;
     return {
@@ -217,6 +218,17 @@ export default function App(): JSX.Element {
   const [aiInstruction, setAiInstruction] = useState<string>("");
   const aiTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [promptModal, setPromptModal] = useState<PromptModalState | null>(null);
+
+  const [credentialModal, setCredentialModal] = useState<{ provider: string; isOpen: boolean }>({
+    provider: "openai",
+    isOpen: false,
+  });
+  const [allCredentials, setAllCredentials] = useState<Record<string, Record<string, string>>>({});
+
+  const onSaveCredentials = useCallback((provider: string, creds: Record<string, string>) => {
+    setAllCredentials((prev) => ({ ...prev, [provider]: creds }));
+    postToExtension({ type: "ui.credentials.set", provider, credentials: creds });
+  }, []);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
   const onAi = useCallback((nodeId: string) => {
@@ -267,6 +279,10 @@ export default function App(): JSX.Element {
     postToExtension({ type: "ui.node.deleteRequest", nodeId });
   }, []);
 
+  const onPatchNode = useCallback((nodeId: string, props: Record<string, any>) => {
+    postToExtension({ type: "ui.node.patchRequest", nodeId, props });
+  }, []);
+
   useEffect(() => {
     postToExtension({ type: "ui.ready" });
   }, []);
@@ -275,6 +291,7 @@ export default function App(): JSX.Element {
     const handler = (event: MessageEvent) => {
       const parsed = ToUiMessageSchema.safeParse(event.data);
       if (!parsed.success) {
+        console.error("Zod validation failed for message:", event.data, parsed.error);
         return;
       }
 
@@ -296,6 +313,10 @@ export default function App(): JSX.Element {
 
       if (msg.type === "ai.prompt") {
         setPromptModal({ nodeId: msg.nodeId, title: msg.title, prompt: msg.prompt });
+      }
+
+      if (msg.type === "credentials.update") {
+        setAllCredentials(msg.credentials);
       }
     };
 
@@ -411,11 +432,8 @@ export default function App(): JSX.Element {
       type: "langchain.agent",
       label: "LangChain Agent",
       props: {
-        systemPrompt: "You are a helpful assistant.",
-        promptTemplate: "{input}",
-        temperature: 0.2,
-        maxTokens: 1024,
-        agentType: "tool-calling",
+        system_prompt: "You are a helpful assistant.",
+        user_prompt: "Tell me a story about a brave robot.",
       },
     });
   }, [createSpecNode]);
@@ -424,7 +442,7 @@ export default function App(): JSX.Element {
     createSpecNode({
       type: "llm.model",
       label: "LLM Model",
-      props: { provider: "openai", model: "gpt-4o-mini" },
+      props: { model_name: "gpt-4o", temperature: 0.7 },
     });
   }, [createSpecNode]);
 
@@ -550,8 +568,22 @@ export default function App(): JSX.Element {
             <Controls />
           </ReactFlow>
         </div>
-        <ConfigPanel node={selectedCoreNode} onClose={() => setSelectedNodeId(null)} onDelete={onDeleteNode} />
+        <ConfigPanel
+          node={selectedCoreNode}
+          onClose={() => setSelectedNodeId(null)}
+          onDelete={onDeleteNode}
+          onPatch={onPatchNode}
+          onOpenCredentials={(provider) => setCredentialModal({ provider, isOpen: true })}
+        />
       </div>
+
+      <CredentialsModal
+        isOpen={credentialModal.isOpen}
+        provider={credentialModal.provider}
+        initialCreds={allCredentials[credentialModal.provider]}
+        onClose={() => setCredentialModal((prev) => ({ ...prev, isOpen: false }))}
+        onSave={onSaveCredentials}
+      />
 
       {promptModal && (
         <div className="holonModalOverlay" onClick={closePromptModal}>
