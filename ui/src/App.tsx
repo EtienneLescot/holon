@@ -21,14 +21,17 @@ import dagre from "dagre";
 
 import { ToUiMessageSchema, type CoreEdge, type CoreNode } from "./protocol";
 import { postToExtension } from "./vscodeBridge";
-import { inferPorts } from "./ports";
+import { inferPorts, type PortSpec } from "./ports";
+import { ConfigPanel } from "./ConfigPanel";
 
 type UiNodeData = {
   label: string;
   nodeId: string;
   name: string;
   kind: "node" | "workflow" | "spec";
-  ports: Array<{ id: string; direction: "input" | "output"; kind?: string | undefined; label?: string | undefined; multi?: boolean | undefined }>;
+  nodeType?: string;
+  props?: Record<string, unknown>;
+  ports: PortSpec[];
   summary?: string;
   badges?: string[];
   aiStatus?: AiStatus;
@@ -54,7 +57,25 @@ function toReactFlowNodes(
   return input.map((n, idx) => {
     const position = n.position ?? { x: 40 + idx * 220, y: n.kind === "workflow" ? 60 : 180 };
     const aiStatus = opts.aiByNodeId[n.id];
-    const ports = n.ports && n.ports.length > 0 ? n.ports : inferPorts({ kind: n.kind, nodeType: n.nodeType });
+    const ports: PortSpec[] =
+      n.ports && n.ports.length > 0
+        ? n.ports.map((p) => {
+            const out: PortSpec = {
+              id: p.id,
+              direction: p.direction,
+            };
+            if (typeof p.kind === "string") {
+              out.kind = p.kind;
+            }
+            if (typeof p.label === "string") {
+              out.label = p.label;
+            }
+            if (typeof p.multi === "boolean") {
+              out.multi = p.multi;
+            }
+            return out;
+          })
+        : inferPorts({ kind: n.kind, nodeType: n.nodeType });
     const summary = n.summary;
     const badges = n.badges;
     return {
@@ -65,6 +86,8 @@ function toReactFlowNodes(
         nodeId: n.id,
         name: n.name,
         kind: n.kind,
+        ...(typeof n.nodeType === "string" ? { nodeType: n.nodeType } : {}),
+        ...(n.props && typeof n.props === "object" ? { props: n.props } : {}),
         ports,
         ...(opts.selectedNodeId === n.id ? { isSelected: true } : {}),
         ...(typeof summary === "string" ? { summary } : {}),
@@ -86,7 +109,7 @@ function toReactFlowEdges(input: CoreEdge[]): Edge[] {
     sourceHandle: e.sourcePort ?? null,
     targetHandle: e.targetPort ?? null,
     animated: false,
-    ...(e.kind === "link" ? { style: { stroke: "rgba(110,168,255,0.9)" } } : {}),
+    ...(e.kind === "link" ? { style: { stroke: "rgba(110,168,255,0.4)" } } : {}),
   }));
 }
 
@@ -97,97 +120,89 @@ function HolonNode(props: NodeProps<UiNodeData>): JSX.Element {
   const canDescribe = data.nodeId.startsWith("node:") || data.nodeId.startsWith("spec:");
 
   const stop = (e: { stopPropagation: () => void }): void => {
-    // React Flow uses pointer events for drag/pan. Stop those at the source so
-    // button clicks aren't eaten by a drag start.
     e.stopPropagation();
   };
 
   const inputs = data.ports.filter((p) => p.direction === "input");
   const outputs = data.ports.filter((p) => p.direction === "output");
 
-  const baseTop = 38;
-  const step = 18;
+  const baseTop = 40;
+  const step = 20;
 
   return (
     <div className={`holonNode${data.isSelected ? " holonNode-selected" : ""}`}>
-      {inputs.map((p, idx) => (
-        <Handle
-          key={`in:${p.id}`}
-          type="target"
-          position={HandlePosition.Left}
-          id={p.id}
-          className={`holonHandle holonHandle-${p.kind ?? "data"}`}
-          style={{ top: baseTop + idx * step }}
-        />
-      ))}
+      <div className="holonNodeInner">
+        {inputs.map((p, idx) => (
+          <Handle
+            key={`in:${p.id}`}
+            type="target"
+            position={HandlePosition.Left}
+            id={p.id}
+            className={`holonHandle holonHandle-${p.kind ?? "data"}`}
+            style={{ top: baseTop + idx * step }}
+          />
+        ))}
 
-      {outputs.map((p, idx) => (
-        <Handle
-          key={`out:${p.id}`}
-          type="source"
-          position={HandlePosition.Right}
-          id={p.id}
-          className={`holonHandle holonHandle-${p.kind ?? "data"}`}
-          style={{ top: baseTop + idx * step }}
-        />
-      ))}
+        {outputs.map((p, idx) => (
+          <Handle
+            key={`out:${p.id}`}
+            type="source"
+            position={HandlePosition.Right}
+            id={p.id}
+            className={`holonHandle holonHandle-${p.kind ?? "data"}`}
+            style={{ top: baseTop + idx * step }}
+          />
+        ))}
 
-      <div className="holonNodeTop">
-        <div>
-          <div className="holonNodeTitle">{data.label}</div>
-          {data.badges?.length ? (
-            <div className="holonPills">
-              {data.badges.map((b) => (
-                <span key={b} className="holonPill">
-                  {b}
-                </span>
-              ))}
-            </div>
-          ) : null}
+        <div className="holonNodeTop">
+          <div>
+            <div className="holonNodeTitle">{data.label}</div>
+            {data.badges?.length ? (
+              <div className="holonPills">
+                {data.badges.map((b) => (
+                  <span key={b} className="holonPill">
+                    {b}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="holonNodeActions">
+            {canAiEdit ? (
+              <button
+                className="nodrag nopan holonAiButton"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  data.onAi(data.nodeId);
+                }}
+                disabled={status === "working"}
+                type="button"
+              >
+                AI
+              </button>
+            ) : null}
+
+            {canDescribe ? (
+              <button
+                className="nodrag nopan holonAiButton"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  data.onDescribe(data.nodeId);
+                }}
+                disabled={status === "working"}
+                type="button"
+              >
+                Describe
+              </button>
+            ) : null}
+          </div>
         </div>
-
-        <div className="holonNodeActions">
-          {canAiEdit ? (
-            <button
-              className="nodrag nopan holonAiButton"
-              onPointerDown={stop}
-              onPointerDownCapture={stop}
-              onMouseDown={(e) => e.stopPropagation()}
-              onClickCapture={(e) => e.stopPropagation()}
-              onPointerUp={(e) => {
-                e.stopPropagation();
-                data.onAi(data.nodeId);
-              }}
-              disabled={status === "working"}
-              title={status === "working" ? "AI working..." : "Ask Copilot to edit this node"}
-              type="button"
-            >
-              AI
-            </button>
-          ) : null}
-
-          {canDescribe ? (
-            <button
-              className="nodrag nopan holonAiButton"
-              onPointerDown={stop}
-              onPointerDownCapture={stop}
-              onMouseDown={(e) => e.stopPropagation()}
-              onClickCapture={(e) => e.stopPropagation()}
-              onPointerUp={(e) => {
-                e.stopPropagation();
-                data.onDescribe(data.nodeId);
-              }}
-              disabled={status === "working"}
-              title={status === "working" ? "AI working..." : "Ask Copilot to describe this node"}
-              type="button"
-            >
-              Describe
-            </button>
-          ) : null}
-        </div>
+        {data.aiStatus?.message ? <div className={`holonNodeStatus holonNodeStatus-${status}`}>{data.aiStatus.message}</div> : null}
+        {data.summary ? <div className="holonNodeSummary">{data.summary}</div> : null}
       </div>
-      {data.aiStatus?.message ? <div className={`holonNodeStatus holonNodeStatus-${status}`}>{data.aiStatus.message}</div> : null}
-      {data.summary ? <div className="holonNodeSummary">{data.summary}</div> : null}
     </div>
   );
 }
@@ -195,20 +210,13 @@ function HolonNode(props: NodeProps<UiNodeData>): JSX.Element {
 export default function App(): JSX.Element {
   const [nodes, setNodes, onNodesChange] = useNodesState<UiNodeData>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([] as Edge[]);
-
-  // React Flow expects nodeTypes/edgeTypes to be referentially stable.
   const nodeTypes = useMemo(() => ({ holon: HolonNode }), []);
-
-  const viteEnv = (import.meta as unknown as { env?: { DEV?: boolean; MODE?: string } }).env;
-  const uiModeLabel = viteEnv?.DEV ? "DEV" : "PROD";
 
   const [aiByNodeId, setAiByNodeId] = useState<Record<string, AiStatus | undefined>>({});
   const [aiModalNodeId, setAiModalNodeId] = useState<string | null>(null);
   const [aiInstruction, setAiInstruction] = useState<string>("");
   const aiTextareaRef = useRef<HTMLTextAreaElement | null>(null);
-
   const [promptModal, setPromptModal] = useState<PromptModalState | null>(null);
-
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
   const onAi = useCallback((nodeId: string) => {
@@ -241,7 +249,6 @@ export default function App(): JSX.Element {
     if (!aiModalNodeId) {
       return;
     }
-    // Next tick so the textarea exists.
     const t = window.setTimeout(() => {
       aiTextareaRef.current?.focus();
     }, 0);
@@ -252,21 +259,13 @@ export default function App(): JSX.Element {
     postToExtension({ type: "ui.node.describeRequest", nodeId });
   }, []);
 
-  const canDeleteSelected = selectedNodeId ? selectedNodeId.startsWith("node:") || selectedNodeId.startsWith("spec:") : false;
-  const onDeleteSelected = useCallback(() => {
-    if (!selectedNodeId) {
-      return;
-    }
-    if (!(selectedNodeId.startsWith("node:") || selectedNodeId.startsWith("spec:"))) {
-      return;
-    }
-    // Keep it simple; we can replace with a nice modal later.
-    const ok = window.confirm(`Delete ${selectedNodeId}? This edits the source code.`);
+  const onDeleteNode = useCallback((nodeId: string) => {
+    const ok = window.confirm(`Delete ${nodeId}? This edits the source code.`);
     if (!ok) {
       return;
     }
-    postToExtension({ type: "ui.node.deleteRequest", nodeId: selectedNodeId });
-  }, [selectedNodeId]);
+    postToExtension({ type: "ui.node.deleteRequest", nodeId });
+  }, []);
 
   useEffect(() => {
     postToExtension({ type: "ui.ready" });
@@ -283,38 +282,10 @@ export default function App(): JSX.Element {
         setEdges(toReactFlowEdges(msg.edges));
       }
 
-      if (msg.type === "graph.error") {
-        setNodes([
-          {
-            id: "error",
-            position: { x: 40, y: 40 },
-            data: { label: `error: ${msg.error}`, nodeId: "error", name: "error", kind: "workflow", ports: [], onAi, onDescribe },
-          },
-        ]);
-        setEdges([]);
-      }
-
       if (msg.type === "ai.status") {
         const next: AiStatus = msg.message ? { status: msg.status, message: msg.message } : { status: msg.status };
-
-        setAiByNodeId((prev) => ({
-          ...prev,
-          [msg.nodeId]: next,
-        }));
-
-        setNodes((prev) =>
-          prev.map((n) =>
-            n.id === msg.nodeId
-              ? {
-                  ...n,
-                  data: {
-                    ...n.data,
-                    aiStatus: next,
-                  },
-                }
-              : n
-          )
-        );
+        setAiByNodeId((prev) => ({ ...prev, [msg.nodeId]: next }));
+        setNodes((prev) => prev.map((n) => n.id === msg.nodeId ? { ...n, data: { ...n.data, aiStatus: next } } : n));
       }
 
       if (msg.type === "ai.prompt") {
@@ -327,20 +298,10 @@ export default function App(): JSX.Element {
   }, [aiByNodeId, onAi, onDescribe, selectedNodeId, setEdges, setNodes]);
 
   useEffect(() => {
-    setNodes((prev) =>
-      prev.map((n) => ({
-        ...n,
-        data: {
-          ...n.data,
-          isSelected: selectedNodeId === n.id,
-        },
-      }))
-    );
+    setNodes((prev) => prev.map((n) => ({ ...n, data: { ...n.data, isSelected: selectedNodeId === n.id } })));
   }, [selectedNodeId, setNodes]);
 
   const onSelectionChange = useCallback((params: OnSelectionChangeParams) => {
-    // Keep React Flow's internal selection from forcing a deselect on mouseup.
-    // Our selection model is click-complete (pointer up) based.
     const first = params.nodes && params.nodes.length > 0 ? params.nodes[0] : undefined;
     if (first) {
       setSelectedNodeId(first.id);
@@ -371,19 +332,15 @@ export default function App(): JSX.Element {
     };
 
     const onPointerUpCapture = (e: PointerEvent) => {
-      // Don't interfere with modals.
       if (aiModalNodeId || promptModal) {
         pointerDownNodeIdRef.current = null;
         pointerDownWasPaneRef.current = false;
         return;
       }
-
       const startedOnNodeId = pointerDownNodeIdRef.current;
       const startedOnPane = pointerDownWasPaneRef.current;
-
       pointerDownNodeIdRef.current = null;
       pointerDownWasPaneRef.current = false;
-
       const t = e.target as unknown;
       const el = t && typeof t === "object" ? (t as { closest?: (s: string) => Element | null }) : null;
       const nodeEl = el && typeof el.closest === "function" ? el.closest(".react-flow__node") : null;
@@ -393,7 +350,6 @@ export default function App(): JSX.Element {
         setSelectedNodeId(startedOnNodeId);
         return;
       }
-
       if (startedOnPane && !endedOnNodeId) {
         setSelectedNodeId(null);
       }
@@ -406,47 +362,6 @@ export default function App(): JSX.Element {
       window.removeEventListener("pointerup", onPointerUpCapture, true);
     };
   }, [aiModalNodeId, promptModal]);
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (aiModalNodeId) {
-        return;
-      }
-
-      // Don't hijack delete while typing.
-      const t = e.target as unknown;
-      if (t && typeof t === "object") {
-        const el = t as { tagName?: string; isContentEditable?: boolean };
-        const tag = (el.tagName ?? "").toLowerCase();
-        if (el.isContentEditable || tag === "input" || tag === "textarea" || tag === "select") {
-          return;
-        }
-      }
-
-      if (e.key !== "Delete" && e.key !== "Backspace") {
-        return;
-      }
-
-      if (!selectedNodeId) {
-        return;
-      }
-
-      // Basic guard: workflows are code structure; we don't delete them for now.
-      if (selectedNodeId.startsWith("workflow:")) {
-        return;
-      }
-
-      e.preventDefault();
-      postToExtension({ type: "ui.node.deleteRequest", nodeId: selectedNodeId });
-    };
-
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [aiModalNodeId, selectedNodeId]);
-
-  const onNodeDragStop: NodeDragHandler = (_event, node) => {
-    postToExtension({ type: "ui.nodesChanged", nodes: [{ id: node.id, position: node.position }] });
-  };
 
   const pendingPositionUpdatesRef = useRef<Map<string, { x: number; y: number }>>(new Map());
   const flushTimerRef = useRef<number | null>(null);
@@ -470,36 +385,30 @@ export default function App(): JSX.Element {
       if (flushTimerRef.current !== null) {
         return;
       }
-      // Throttle: send at most ~6x/sec while dragging.
       flushTimerRef.current = window.setTimeout(flushPositions, 160);
     },
     [flushPositions]
   );
 
-  const onNodesChangeForward: OnNodesChange = useCallback(
-    (changes) => {
-      onNodesChange(changes);
+  const onNodesChangeForward: OnNodesChange = useCallback((changes) => {
+    onNodesChange(changes);
 
-      // Some interactions don't reliably trigger onNodeDragStop in all environments.
-      // Emit a minimal nodesChanged when a drag finishes.
-      for (const c of changes) {
-        if (c.type !== "position") {
-          continue;
-        }
-        const id = (c as unknown as { id?: string }).id;
-        const position = (c as unknown as { position?: { x: number; y: number } }).position;
-        if (!id || !position) {
-          continue;
-        }
-
-        // Send continuously while dragging so we don't lose updates if mouseup happens outside the webview.
-        queuePositionUpdate(id, position);
+    for (const c of changes) {
+      if (c.type !== "position") {
+        continue;
       }
-    },
-    [onNodesChange, queuePositionUpdate]
-  );
+      const id = (c as unknown as { id?: string }).id;
+      const position = (c as unknown as { position?: { x: number; y: number } }).position;
+      if (!id || !position) {
+        continue;
+      }
+      queuePositionUpdate(id, position);
+    }
+  }, [onNodesChange, queuePositionUpdate]);
 
-  const stats = useMemo(() => ({ nodes: nodes.length, edges: edges.length }), [nodes.length, edges.length]);
+  const onNodeDragStop: NodeDragHandler = (_event, node) => {
+    postToExtension({ type: "ui.nodesChanged", nodes: [{ id: node.id, position: node.position }] });
+  };
 
   const onAutoLayout = useCallback(() => {
     const next = layoutWithDagre(nodes, edges, { direction: "LR" });
@@ -519,14 +428,13 @@ export default function App(): JSX.Element {
       label: string;
       props?: Record<string, unknown>;
     }) => {
-      const id = `spec:${spec.type}:${randomId()}`;
       // Place near the top-left, staggered.
       const pos = { x: 60 + (nodes.length % 4) * 260, y: 100 + Math.floor(nodes.length / 4) * 140 };
 
       postToExtension({
         type: "ui.nodeCreated",
         node: {
-          id,
+          id: `spec:${spec.type}:${randomId()}`,
           type: spec.type,
           label: spec.label,
           inputs: [],
@@ -600,17 +508,44 @@ export default function App(): JSX.Element {
     });
   }, []);
 
+  const stats = useMemo(() => ({ nodes: nodes.length, edges: edges.length }), [nodes.length, edges.length]);
+  const canDeleteSelected = selectedNodeId ? selectedNodeId.startsWith("node:") || selectedNodeId.startsWith("spec:") : false;
+
+  const selectedCoreNode = useMemo(() => {
+    if (!selectedNodeId) return null;
+    const n = nodes.find((x) => x.id === selectedNodeId);
+    if (!n) return null;
+    const data = n.data;
+    return {
+      id: n.id,
+      name: data.name,
+      kind: data.kind,
+      label: data.label,
+      nodeType: data.nodeType,
+      props: data.props,
+      summary: data.summary,
+      badges: data.badges,
+      ports: data.ports,
+      position: n.position,
+    };
+  }, [nodes, selectedNodeId]);
+
   return (
     <div className="holonRoot">
       <div className="header">
-        <strong>Holon</strong>
+        <span className="holonTitle">Holon</span>
         <span className="badge">Phase 4</span>
-        <span className="badge">{uiModeLabel}</span>
         <span className="badge">nodes: {stats.nodes}</span>
         <span className="badge">edges: {stats.edges}</span>
-
         <div className="holonHeaderActions">
-          <button type="button" className="holonHeaderButton" onClick={onDeleteSelected} disabled={!canDeleteSelected}>
+          <button
+            type="button"
+            className="holonHeaderButton"
+            onClick={() => {
+              if (selectedNodeId) onDeleteNode(selectedNodeId);
+            }}
+            disabled={!canDeleteSelected}
+          >
             Delete
           </button>
           <button type="button" className="holonHeaderButton" onClick={onAddAgent}>
@@ -633,166 +568,115 @@ export default function App(): JSX.Element {
           </button>
         </div>
       </div>
-      <div className="canvas">
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          onNodesChange={onNodesChangeForward}
-          onEdgesChange={onEdgesChange}
-          onNodeDragStop={onNodeDragStop}
-          onConnect={onConnect}
-          onSelectionChange={onSelectionChange}
-          onNodeClick={(_e, n) => setSelectedNodeId(n.id)}
-          nodeTypes={nodeTypes}
-          noDragClassName="nodrag"
-          noPanClassName="nopan"
-          fitView
-        >
-          <Background />
-          <MiniMap />
-          <Controls />
-        </ReactFlow>
+      <div className="holonMainSplit">
+        <div className="canvas">
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={onNodesChangeForward}
+            onEdgesChange={onEdgesChange}
+            onNodeDragStop={onNodeDragStop}
+            onConnect={onConnect}
+            onSelectionChange={onSelectionChange}
+            onNodeClick={(_e, n) => setSelectedNodeId(n.id)}
+            nodeTypes={nodeTypes}
+            noDragClassName="nodrag"
+            noPanClassName="nopan"
+            fitView
+          >
+            <Background />
+            <MiniMap />
+            <Controls />
+          </ReactFlow>
+        </div>
+        <ConfigPanel node={selectedCoreNode} onClose={() => setSelectedNodeId(null)} onDelete={onDeleteNode} />
       </div>
 
-      {aiModalNodeId ? (
-        <div
-          className="holonModalOverlay nodrag nopan"
-          role="dialog"
-          aria-modal="true"
-          onPointerDown={(e) => {
-            // Click outside closes.
-            if (e.target === e.currentTarget) {
-              closeAiModal();
-            }
-          }}
-        >
-          <div
-            className="holonModal"
-            onPointerDown={(e) => e.stopPropagation()}
-            onPointerUp={(e) => e.stopPropagation()}
-            onClick={(e) => e.stopPropagation()}
-          >
+      {promptModal && (
+        <div className="holonModalOverlay" onClick={closePromptModal}>
+          <div className="holonModal holonModalLarge" onClick={(e) => e.stopPropagation()}>
             <div className="holonModalHeader">
-              <strong>AI edit</strong>
-              <span className="holonModalSub">{aiModalNodeId}</span>
+              <strong>{promptModal.title}</strong>
+              <div style={{ fontSize: '12px', opacity: 0.6, marginTop: '4px' }}>Copy this prompt to your LLM and apply the patch manually.</div>
             </div>
             <textarea
-              className="nodrag nopan holonModalTextarea"
+              className="holonModalTextarea"
+              readOnly
+              value={promptModal.prompt}
+              style={{ fontFamily: 'monospace', fontSize: '12px', minHeight: '300px' }}
+              onClick={(e) => (e.target as HTMLTextAreaElement).select()}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  closePromptModal();
+                }
+              }}
+            />
+            <div className="holonModalButtons">
+              <button
+                className="holonButton"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(promptModal.prompt);
+                  } catch {
+                    // Fallback
+                  }
+                }}
+              >
+                Copy to Clipboard
+              </button>
+              <button className="holonButton holonButtonPrimary" onClick={closePromptModal}>
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {aiModalNodeId && (
+        <div className="holonModalOverlay" onClick={closeAiModal}>
+          <div className="holonModal" onClick={(e) => e.stopPropagation()}>
+            <div className="holonModalHeader">
+              <h2 className="text-xl font-black uppercase italic tracking-tighter">AI Transformation</h2>
+              <div className="text-[10px] uppercase font-black tracking-[0.2em] text-white/20 mt-2">Neural Patch Process</div>
+            </div>
+            <textarea
+              className="holonModalTextarea"
               ref={aiTextareaRef}
               value={aiInstruction}
               onChange={(e) => setAiInstruction(e.target.value)}
-              onPointerDown={(e) => e.stopPropagation()}
-              onPointerDownCapture={(e) => e.stopPropagation()}
-              onClickCapture={(e) => e.stopPropagation()}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") {
-                  e.stopPropagation();
-                  closeAiModal();
-                  return;
-                }
-                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-                  e.stopPropagation();
-                  submitAiModal();
-                }
-              }}
               placeholder={
                 aiModalNodeId.startsWith("spec:")
                   ? "Describe what you want this node to do / how to configure it (Copilot will edit spec(...))."
                   : "Describe the change you want in this node's code (Copilot will patch the function)."
               }
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  closeAiModal();
+                } else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                  submitAiModal();
+                }
+              }}
             />
             <div className="holonModalButtons">
-              <button
-                type="button"
-                className="nodrag nopan holonButton"
-                onPointerDown={(e) => e.stopPropagation()}
-                onPointerDownCapture={(e) => e.stopPropagation()}
-                onMouseDown={(e) => e.stopPropagation()}
-                onClickCapture={(e) => e.stopPropagation()}
-                onPointerUp={(e) => {
-                  e.stopPropagation();
-                  closeAiModal();
-                }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  closeAiModal();
-                }}
-              >
+              <button className="holonButton" onClick={closeAiModal}>
                 Cancel
               </button>
-              <button
-                type="button"
-                className="nodrag nopan holonButton holonButtonPrimary"
-                onPointerDown={(e) => e.stopPropagation()}
-                onPointerDownCapture={(e) => e.stopPropagation()}
-                onMouseDown={(e) => e.stopPropagation()}
-                onClickCapture={(e) => e.stopPropagation()}
-                disabled={!aiInstruction.trim()}
-                onPointerUp={(e) => {
-                  e.stopPropagation();
-                  submitAiModal();
-                }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  submitAiModal();
-                }}
-              >
+              <button className="holonButton holonButtonPrimary" onClick={submitAiModal} disabled={!aiInstruction.trim()}>
                 Send
               </button>
             </div>
           </div>
         </div>
-      ) : null}
-
-      {promptModal ? (
-        <div
-          className="holonModalOverlay nodrag nopan"
-          role="dialog"
-          aria-modal="true"
-          onPointerDown={(e) => {
-            if (e.target === e.currentTarget) {
-              closePromptModal();
-            }
-          }}
-        >
-          <div className="holonModal" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
-            <div className="holonModalHeader">
-              <strong>{promptModal.title}</strong>
-              <span className="holonModalSub">{promptModal.nodeId}</span>
-            </div>
-            <textarea className="nodrag nopan holonModalTextarea" readOnly value={promptModal.prompt} />
-            <div className="holonModalButtons">
-              <button type="button" className="nodrag nopan holonButton" onClick={closePromptModal}>
-                Close
-              </button>
-              <button
-                type="button"
-                className="nodrag nopan holonButton holonButtonPrimary"
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(promptModal.prompt);
-                  } catch {
-                    // Fallback: do nothing; user can still select/copy.
-                  }
-                }}
-              >
-                Copy
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      )}
     </div>
   );
 }
 
 function randomId(): string {
-  // Prefer UUID when available.
   const c = globalThis.crypto;
   if (c && typeof (c as unknown as { randomUUID?: unknown }).randomUUID === "function") {
     return (c as unknown as { randomUUID: () => string }).randomUUID();
   }
-  // Fallback: 16 random bytes.
   if (c && typeof c.getRandomValues === "function") {
     const bytes = new Uint8Array(16);
     c.getRandomValues(bytes);
@@ -800,7 +684,6 @@ function randomId(): string {
       .map((b) => b.toString(16).padStart(2, "0"))
       .join("");
   }
-  // Very last resort.
   return `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;
 }
 
@@ -846,7 +729,6 @@ function layoutWithDagre(
     const pp = p as { x?: number; y?: number };
     const x = typeof pp.x === "number" ? pp.x : n.position.x;
     const y = typeof pp.y === "number" ? pp.y : n.position.y;
-    // dagre returns center coordinates; React Flow expects top-left.
     return {
       ...n,
       position: { x: x - NODE_WIDTH / 2, y: y - NODE_HEIGHT / 2 },

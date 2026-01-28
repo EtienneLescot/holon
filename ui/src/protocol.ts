@@ -33,6 +33,7 @@ export const CoreNodeSchema = z.object({
   position: PositionSchema.nullable().optional(),
   label: z.string().optional(),
   nodeType: z.string().optional(),
+  props: z.record(z.unknown()).optional(),
   summary: z.string().optional(),
   badges: z.array(z.string()).optional(),
   ports: z.array(PortSpecSchema).optional(),
