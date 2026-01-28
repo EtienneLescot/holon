@@ -433,7 +433,6 @@ class BrowserDevBridge {
         savePositions(this.fileScope, next);
       }
 
-      await fetchJson("/api/source", { method: "PUT", body: JSON.stringify({ source: this.source }) });
       await this.parseAndSend("ui.node.deleteRequest");
       return;
     }
@@ -456,7 +455,6 @@ class BrowserDevBridge {
         savePositions(this.fileScope, this.positions);
       }
 
-      await fetchJson("/api/source", { method: "PUT", body: JSON.stringify({ source: this.source }) });
       await this.parseAndSend("ui.nodeCreated");
       return;
     }
@@ -481,7 +479,6 @@ class BrowserDevBridge {
         this.source = r.source;
       });
 
-      await fetchJson("/api/source", { method: "PUT", body: JSON.stringify({ source: this.source }) });
       await this.parseAndSend("ui.edgeCreated");
       return;
     }

@@ -16,9 +16,16 @@ type BrowserBridge = {
 };
 
 let browserBridge: BrowserBridge | undefined;
+const pendingMessages: ToExtensionMessage[] = [];
 
 export function registerBrowserBridge(bridge: BrowserBridge): void {
   browserBridge = bridge;
+  while (pendingMessages.length > 0) {
+    const msg = pendingMessages.shift();
+    if (msg) {
+      bridge.postMessageFromUi(msg);
+    }
+  }
 }
 
 export function getVsCodeApi(): VsCodeApi | undefined {
@@ -47,7 +54,11 @@ export function postToExtension(message: ToExtensionMessage): void {
   const api = getVsCodeApi();
   if (!api) {
     // Browser mode: forward to the dev bridge if present.
-    browserBridge?.postMessageFromUi(message);
+    if (browserBridge) {
+      browserBridge.postMessageFromUi(message);
+    } else {
+      pendingMessages.push(message);
+    }
     return;
   }
   api.postMessage(message);

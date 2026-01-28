@@ -81,6 +81,7 @@ function toReactFlowNodes(
     return {
       id: n.id,
       position,
+      selected: opts.selectedNodeId === n.id,
       data: {
         label: n.label ?? `${n.kind}: ${n.name}`,
         nodeId: n.id,
@@ -89,7 +90,6 @@ function toReactFlowNodes(
         ...(typeof n.nodeType === "string" ? { nodeType: n.nodeType } : {}),
         ...(n.props && typeof n.props === "object" ? { props: n.props } : {}),
         ports,
-        ...(opts.selectedNodeId === n.id ? { isSelected: true } : {}),
         ...(typeof summary === "string" ? { summary } : {}),
         ...(Array.isArray(badges) ? { badges } : {}),
         ...(aiStatus ? { aiStatus } : {}),
@@ -114,7 +114,7 @@ function toReactFlowEdges(input: CoreEdge[]): Edge[] {
 }
 
 function HolonNode(props: NodeProps<UiNodeData>): JSX.Element {
-  const { data } = props;
+  const { data, selected } = props;
   const status = data.aiStatus?.status ?? "idle";
   const canAiEdit = data.nodeId.startsWith("node:") || data.nodeId.startsWith("spec:");
   const canDescribe = data.nodeId.startsWith("node:") || data.nodeId.startsWith("spec:");
@@ -130,7 +130,7 @@ function HolonNode(props: NodeProps<UiNodeData>): JSX.Element {
   const step = 20;
 
   return (
-    <div className={`holonNode${data.isSelected ? " holonNode-selected" : ""}`}>
+    <div className={`holonNode${selected ? " holonNode-selected" : ""}`}>
       <div className="holonNodeInner">
         {inputs.map((p, idx) => (
           <Handle
@@ -269,7 +269,9 @@ export default function App(): JSX.Element {
 
   useEffect(() => {
     postToExtension({ type: "ui.ready" });
+  }, []);
 
+  useEffect(() => {
     const handler = (event: MessageEvent) => {
       const parsed = ToUiMessageSchema.safeParse(event.data);
       if (!parsed.success) {
@@ -280,6 +282,10 @@ export default function App(): JSX.Element {
       if (msg.type === "graph.init" || msg.type === "graph.update") {
         setNodes(toReactFlowNodes(msg.nodes, { onAi, onDescribe, aiByNodeId, selectedNodeId }));
         setEdges(toReactFlowEdges(msg.edges));
+      }
+
+      if (msg.type === "graph.error") {
+        window.alert(`Graph Error: ${msg.error}`);
       }
 
       if (msg.type === "ai.status") {
@@ -297,10 +303,6 @@ export default function App(): JSX.Element {
     return () => window.removeEventListener("message", handler);
   }, [aiByNodeId, onAi, onDescribe, selectedNodeId, setEdges, setNodes]);
 
-  useEffect(() => {
-    setNodes((prev) => prev.map((n) => ({ ...n, data: { ...n.data, isSelected: selectedNodeId === n.id } })));
-  }, [selectedNodeId, setNodes]);
-
   const onSelectionChange = useCallback((params: OnSelectionChangeParams) => {
     const first = params.nodes && params.nodes.length > 0 ? params.nodes[0] : undefined;
     if (first) {
@@ -308,62 +310,8 @@ export default function App(): JSX.Element {
     }
   }, []);
 
-  const pointerDownNodeIdRef = useRef<string | null>(null);
-  const pointerDownWasPaneRef = useRef<boolean>(false);
-
-  useEffect(() => {
-    const onPointerDownCapture = (e: PointerEvent) => {
-      const t = e.target as unknown;
-      if (!t || typeof t !== "object") {
-        pointerDownNodeIdRef.current = null;
-        pointerDownWasPaneRef.current = true;
-        return;
-      }
-      const el = t as { closest?: (s: string) => Element | null };
-      const nodeEl = typeof el.closest === "function" ? el.closest(".react-flow__node") : null;
-      if (nodeEl && typeof (nodeEl as Element).getAttribute === "function") {
-        const id = (nodeEl as Element).getAttribute("data-id");
-        pointerDownNodeIdRef.current = id || null;
-        pointerDownWasPaneRef.current = false;
-        return;
-      }
-      pointerDownNodeIdRef.current = null;
-      pointerDownWasPaneRef.current = true;
-    };
-
-    const onPointerUpCapture = (e: PointerEvent) => {
-      if (aiModalNodeId || promptModal) {
-        pointerDownNodeIdRef.current = null;
-        pointerDownWasPaneRef.current = false;
-        return;
-      }
-      const startedOnNodeId = pointerDownNodeIdRef.current;
-      const startedOnPane = pointerDownWasPaneRef.current;
-      pointerDownNodeIdRef.current = null;
-      pointerDownWasPaneRef.current = false;
-      const t = e.target as unknown;
-      const el = t && typeof t === "object" ? (t as { closest?: (s: string) => Element | null }) : null;
-      const nodeEl = el && typeof el.closest === "function" ? el.closest(".react-flow__node") : null;
-      const endedOnNodeId = nodeEl && typeof (nodeEl as Element).getAttribute === "function" ? (nodeEl as Element).getAttribute("data-id") : null;
-
-      if (startedOnNodeId && endedOnNodeId && startedOnNodeId === endedOnNodeId) {
-        setSelectedNodeId(startedOnNodeId);
-        return;
-      }
-      if (startedOnPane && !endedOnNodeId) {
-        setSelectedNodeId(null);
-      }
-    };
-
-    window.addEventListener("pointerdown", onPointerDownCapture, true);
-    window.addEventListener("pointerup", onPointerUpCapture, true);
-    return () => {
-      window.removeEventListener("pointerdown", onPointerDownCapture, true);
-      window.removeEventListener("pointerup", onPointerUpCapture, true);
-    };
-  }, [aiModalNodeId, promptModal]);
-
   const pendingPositionUpdatesRef = useRef<Map<string, { x: number; y: number }>>(new Map());
+
   const flushTimerRef = useRef<number | null>(null);
 
   const flushPositions = useCallback(() => {
@@ -391,7 +339,18 @@ export default function App(): JSX.Element {
   );
 
   const onNodesChangeForward: OnNodesChange = useCallback((changes) => {
-    onNodesChange(changes);
+    // Intercept removals to confirm with user before they disappear.
+    // We only apply non-remove changes to the local state immediately.
+    // Removals will be applied when the backend sends the updated graph.
+    const toRemove = changes.filter((c) => c.type === "remove") as Array<{ id: string }>;
+    for (const c of toRemove) {
+      if (c.id.startsWith("node:") || c.id.startsWith("spec:")) {
+        onDeleteNode(c.id);
+      }
+    }
+
+    const filteredChanges = changes.filter((c) => c.type !== "remove");
+    onNodesChange(filteredChanges);
 
     for (const c of changes) {
       if (c.type !== "position") {
@@ -404,7 +363,7 @@ export default function App(): JSX.Element {
       }
       queuePositionUpdate(id, position);
     }
-  }, [onNodesChange, queuePositionUpdate]);
+  }, [onNodesChange, onDeleteNode, queuePositionUpdate]);
 
   const onNodeDragStop: NodeDragHandler = (_event, node) => {
     postToExtension({ type: "ui.nodesChanged", nodes: [{ id: node.id, position: node.position }] });
@@ -579,9 +538,11 @@ export default function App(): JSX.Element {
             onConnect={onConnect}
             onSelectionChange={onSelectionChange}
             onNodeClick={(_e, n) => setSelectedNodeId(n.id)}
+            onPaneClick={() => setSelectedNodeId(null)}
             nodeTypes={nodeTypes}
             noDragClassName="nodrag"
             noPanClassName="nopan"
+            deleteKeyCode={["Delete", "Backspace"]}
             fitView
           >
             <Background />
