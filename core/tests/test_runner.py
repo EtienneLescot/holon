@@ -240,3 +240,154 @@ async def main() -> int:
         
         assert result.success is False
         assert isinstance(result.error, FileNotFoundError)
+
+
+class TestSpecNodeResolution:
+    """Test spec node resolution in workflows."""
+    
+    @pytest.fixture
+    def runner(self):
+        return WorkflowRunner()
+    
+    @pytest.mark.asyncio
+    async def test_resolve_spec_node_basic(self, runner, tmp_path):
+        """Test basic spec node resolution."""
+        workflow_file = tmp_path / "spec_test.holon.py"
+        workflow_file.write_text('''
+from holon import node, workflow
+
+@node(type="memory.buffer", id="spec:mem:test")
+class TestMemory:
+    max_messages = 5
+
+@workflow
+async def main() -> str:
+    # TestMemory should be resolved to a MemoryBuffer instance
+    if hasattr(TestMemory, "add"):
+        TestMemory.add("test message")
+        return f"Resolved: {len(TestMemory.get_messages())} messages"
+    return "Not resolved"
+''')
+        
+        result = await runner.run_workflow_file(workflow_file, "main")
+        
+        assert result.success is True
+        assert "Resolved: 1 messages" in result.output
+    
+    @pytest.mark.asyncio
+    async def test_resolve_spec_node_with_props(self, runner, tmp_path):
+        """Test spec node resolution extracts class attributes as props."""
+        workflow_file = tmp_path / "spec_props.holon.py"
+        workflow_file.write_text('''
+from holon import node, workflow
+
+@node(type="memory.buffer", id="spec:mem:configured")
+class ConfiguredMemory:
+    max_messages = 15
+
+@workflow
+async def main() -> int:
+    return ConfiguredMemory.max_messages
+''')
+        
+        result = await runner.run_workflow_file(workflow_file, "main")
+        
+        assert result.success is True
+        assert result.output == 15
+    
+    @pytest.mark.asyncio
+    async def test_resolve_multiple_spec_nodes(self, runner, tmp_path):
+        """Test resolving multiple spec nodes in same workflow."""
+        workflow_file = tmp_path / "multi_spec.holon.py"
+        workflow_file.write_text('''
+from holon import node, workflow
+
+@node(type="memory.buffer", id="spec:mem:one")
+class Memory1:
+    max_messages = 10
+
+@node(type="memory.buffer", id="spec:mem:two")
+class Memory2:
+    max_messages = 20
+
+@workflow
+async def main() -> str:
+    return f"{Memory1.max_messages},{Memory2.max_messages}"
+''')
+        
+        result = await runner.run_workflow_file(workflow_file, "main")
+        
+        assert result.success is True
+        assert result.output == "10,20"
+    
+    @pytest.mark.asyncio
+    async def test_spec_node_caching(self, runner, tmp_path):
+        """Test that spec nodes are cached by ID."""
+        workflow_file = tmp_path / "cached_spec.holon.py"
+        workflow_file.write_text('''
+from holon import node, workflow
+
+@node(type="memory.buffer", id="spec:mem:cached")
+class CachedMemory:
+    max_messages = 7
+
+@workflow
+async def main() -> bool:
+    # Add a message
+    CachedMemory.add("first")
+    
+    # Reference should be to the same cached instance
+    return len(CachedMemory.get_messages()) == 1
+''')
+        
+        result = await runner.run_workflow_file(workflow_file, "main")
+        
+        assert result.success is True
+        assert result.output is True
+    
+    @pytest.mark.asyncio
+    async def test_spec_node_without_resolver(self, runner, tmp_path):
+        """Test that workflows work even if spec type has no resolver."""
+        workflow_file = tmp_path / "no_resolver.holon.py"
+        workflow_file.write_text('''
+from holon import node, workflow
+
+@node(type="unknown.custom.type", id="spec:unknown:1")
+class UnknownType:
+    custom_prop = "value"
+
+@workflow
+async def main() -> str:
+    # Should still access the class attribute
+    return UnknownType.custom_prop
+''')
+        
+        result = await runner.run_workflow_file(workflow_file, "main")
+        
+        assert result.success is True
+        assert result.output == "value"
+    
+    @pytest.mark.asyncio
+    async def test_disable_spec_resolution(self, tmp_path):
+        """Test disabling spec resolution."""
+        runner = WorkflowRunner(resolve_specs=False)
+        
+        workflow_file = tmp_path / "no_resolve.holon.py"
+        workflow_file.write_text('''
+from holon import node, workflow
+
+@node(type="memory.buffer", id="spec:mem:unresolved")
+class UnresolvedMemory:
+    max_messages = 10
+
+@workflow
+async def main() -> str:
+    # With resolve_specs=False, should still be a class
+    return f"Is class: {isinstance(UnresolvedMemory, type)}"
+''')
+        
+        result = await runner.run_workflow_file(workflow_file, "main")
+        
+        assert result.success is True
+        assert "Is class: True" in result.output
+

@@ -100,11 +100,84 @@ UI (React):
 - Type-safe: proper typing and error handling
 - Simple API: `runner.run_workflow_file(path, name)` → `ExecutionResult`
 
-### 5) Phase 6: Extended execution (NEXT)
+### 5) Phase 6: Extended execution (DONE - spec node resolution) ✅
+
+**Completed (2026-01-29):**
+- ✅ Spec type registry with resolver functions
+- ✅ Built-in resolvers for common types (LLM, memory, tools)
+- ✅ Automatic spec node resolution in workflows
+- ✅ Custom resolver registration via decorator
+- ✅ LangChain integration with specific resolvers
+- ✅ Prop extraction from class attributes
+- ✅ Spec node caching by ID
+- ✅ Comprehensive test coverage (20+ tests)
+- ✅ Documentation and examples
+
+**Architecture:**
+```python
+# Define spec node with configuration
+@node(type="memory.buffer", id="spec:mem:chat")
+class ChatMemory:
+    max_messages = 10
+
+# At runtime, resolved to actual MemoryBuffer instance
+# runner.run_workflow_file() automatically handles resolution
+```
+
+**Key Features:**
+- Global registry: `holon.registry.SpecTypeRegistry`
+- Registration: `@register_spec_type("my.type")`
+- Resolution: `resolve_spec_node(type, props)`
+- Built-in types: `llm.model`, `memory.buffer`, `tool.function`
+- LangChain types: `langchain.agent`, `langchain.memory.buffer`, `langchain.tool`
+
+**Files created:**
+- `core/holon/registry.py` - Registry implementation
+- `core/holon/library/langchain_registry.py` - LangChain resolvers
+- `core/tests/test_registry.py` - Registry tests (20+ tests)
+- `core/examples/spec_nodes.holon.py` - Example workflow
+- `core/examples/run_spec_demo.py` - Interactive demo
+- `core/holon/REGISTRY_README.md` - Complete documentation
+
+### 6) Phase 6: Port-based execution (NEXT)
 
 **To implement:**
-- Spec node resolution: instantiate runtime objects from `@node(type="...", props={...})`
-- Port-based data flow: explicit connections via `@link` declarations
+- Port-based data flow: respect `@link` declarations for explicit connections
+- Runtime port validation: ensure type compatibility
+- Multi-port connections: support nodes with multiple inputs/outputs
+- Port metadata: labels, kinds (data/llm/memory/tool), multiplicity
+
+**Port resolution strategy:**
+- Parse `@link` declarations from workflows
+- Build execution graph with port connections
+- Validate port compatibility before execution
+- Pass data through ports rather than direct function calls
+
+**Example:**
+```python
+@node(type="langchain.agent", id="spec:agent:1")
+class Agent:
+    system_prompt = "..."
+
+@node(type="llm.model", id="spec:llm:1")
+class LLM:
+    model_name = "gpt-4o"
+
+@link
+class _:
+    source = (LLM, "llm")
+    target = (Agent, "llm")
+
+@workflow
+async def main():
+    # Port connections are resolved automatically
+    result = Agent(input="Hello")
+    return result
+```
+
+### 7) Phase 6: Advanced execution features (FUTURE)
+
+**To implement:**
 - Context passing: make `Context` available to nodes at runtime
 - Parallel execution: run independent nodes concurrently
 - Execution tracing: collect timing, intermediate values, errors

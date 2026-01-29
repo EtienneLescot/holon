@@ -1,15 +1,17 @@
-"""Holon workflow runner (Phase 6 - initial implementation).
+"""Holon workflow runner (Phase 6).
 
-This module provides a minimal but extensible execution engine for Holon workflows.
+This module provides an execution engine for Holon workflows with support for:
+- Python @node functions (sync and async)
+- Spec node resolution (instantiate objects from type + props)
+- Clean error handling and reporting
 
 Design principles:
 - Start simple: execute Python @node functions in sequence
-- Prepared for growth: architecture supports future spec node resolution
+- Extensible: architecture supports spec node resolution
 - Clean separation: execution is opt-in and separate from editing/parsing
 - Type-safe: proper typing and error handling
 
-Future extensions (not yet implemented):
-- Spec node resolution (instantiate objects from type + props)
+Future extensions:
 - Port-based data flow (explicit connections between nodes)
 - Parallel execution for independent nodes
 - Streaming/async iteration
@@ -27,6 +29,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from holon.dsl import Context
+from holon.registry import resolve_spec_node, has_spec_type
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,11 +50,10 @@ class ExecutionResult:
 
 
 class WorkflowRunner:
-    """Simple workflow execution engine.
+    """Workflow execution engine with spec node resolution.
     
-    This runner executes Python functions decorated with @node and @workflow.
-    It provides a foundation for future enhancements like spec node resolution
-    and port-based data flow.
+    This runner executes Python functions decorated with @node and @workflow,
+    and can resolve spec nodes (library nodes) to runtime objects.
     
     Example:
         ```python
@@ -62,16 +64,33 @@ class WorkflowRunner:
         else:
             print(f"Error: {result.error}")
         ```
+    
+    Spec Node Resolution:
+        Spec nodes decorated with @node(type="...", ...) are automatically
+        resolved to runtime objects using the global type registry:
+        
+        ```python
+        @node(type="llm.model", id="spec:llm:gpt4")
+        class GPT4:
+            model_name = "gpt-4o"
+            temperature = 0.7
+        
+        # At runtime, GPT4 is resolved to an actual LLM client
+        ```
     """
     
-    def __init__(self, *, context: Context | None = None):
+    def __init__(self, *, context: Context | None = None, resolve_specs: bool = True):
         """Initialize the workflow runner.
         
         Args:
             context: Optional execution context passed to nodes.
                      If None, a default empty context is created.
+            resolve_specs: Whether to resolve spec nodes to runtime objects.
+                          If False, spec node classes are returned as-is.
         """
         self.context = context or Context()
+        self.resolve_specs = resolve_specs
+        self._spec_cache: dict[str, Any] = {}  # Cache resolved spec nodes
     
     async def run_workflow_file(
         self,
@@ -185,12 +204,102 @@ class WorkflowRunner:
         
         try:
             spec.loader.exec_module(module)
+            
+            # Post-process: resolve spec nodes if enabled
+            if self.resolve_specs:
+                self._resolve_module_specs(module)
         except Exception:
             # Clean up on failure
             sys.modules.pop(module_name, None)
             raise
         
         return module
+    
+    def _resolve_module_specs(self, module: Any) -> None:
+        """Resolve spec nodes in a module to runtime objects.
+        
+        This scans the module for classes decorated with @node(type="...", ...)
+        and replaces them with resolved runtime objects.
+        
+        Args:
+            module: The module to scan and resolve
+        """
+        for attr_name in dir(module):
+            if attr_name.startswith("_"):
+                continue
+            
+            attr = getattr(module, attr_name, None)
+            if attr is None:
+                continue
+            
+            # Check if this is a spec node (library node)
+            metadata = getattr(attr, "__holon_decorator__", None)
+            if metadata is None or metadata.kind != "node_library":
+                continue
+            
+            # Extract spec metadata
+            spec_type = getattr(attr, "__holon_spec_type__", None)
+            spec_id = getattr(attr, "__holon_spec_id__", None)
+            
+            if spec_type is None:
+                continue
+            
+            # Check if we've already resolved this
+            if spec_id and spec_id in self._spec_cache:
+                setattr(module, attr_name, self._spec_cache[spec_id])
+                continue
+            
+            # Extract props from class attributes
+            props = self._extract_spec_props(attr)
+            
+            # Resolve to runtime object
+            try:
+                resolved = resolve_spec_node(spec_type, props)
+                
+                # Cache if we have an ID
+                if spec_id:
+                    self._spec_cache[spec_id] = resolved
+                
+                # Replace the class with the resolved object in the module
+                setattr(module, attr_name, resolved)
+            except ValueError as e:
+                # No resolver available - leave the class as-is
+                # This allows partial execution even without all resolvers
+                pass
+    
+    def _extract_spec_props(self, cls: type) -> dict[str, Any]:
+        """Extract configuration properties from a spec node class.
+        
+        Extracts non-private, non-callable class attributes as props.
+        
+        Args:
+            cls: The spec node class
+        
+        Returns:
+            Dictionary of property name → value
+        """
+        props: dict[str, Any] = {}
+        
+        for attr_name in dir(cls):
+            if attr_name.startswith("_"):
+                continue
+            if attr_name.startswith("__holon"):
+                continue
+            
+            try:
+                attr_value = getattr(cls, attr_name)
+                
+                # Skip methods and special attributes
+                if callable(attr_value):
+                    continue
+                if isinstance(attr_value, (staticmethod, classmethod, property)):
+                    continue
+                
+                props[attr_name] = attr_value
+            except AttributeError:
+                continue
+        
+        return props
 
 
 def run_workflow_sync(
