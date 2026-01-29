@@ -8,6 +8,8 @@ The actual graph extraction is handled by the LibCST-based parser.
 
 from __future__ import annotations
 
+import builtins
+
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, ParamSpec, TypeVar, overload
@@ -114,7 +116,7 @@ def node(
 
     # No arguments: direct decoration of a function
     if func is not None:
-        if isinstance(func, type):
+        if isinstance(func, builtins.type):
             return decorator_class(func)
         return decorator_func(func)
 
@@ -272,22 +274,66 @@ def spec_node(
     return decorator
 
 
+@overload
 def link(
     source_node_id: str,
     source_port: str,
     target_node_id: str,
     target_port: str,
     /,
-) -> None:
+) -> None: ...
+
+
+@overload
+def link(cls: type[Any], /) -> type[Any]: ...
+
+
+def link(
+    source_node_id: str | type[Any] | None = None,
+    source_port: str | None = None,
+    target_node_id: str | None = None,
+    target_port: str | None = None,
+    /,
+) -> None | type[Any] | Callable[[type[Any]], type[Any]]:
     """Declare a link between two node ports.
 
-    This is a Phase 5 stub used by the parser. It has no runtime behavior.
+    Can be used in two ways:
+    1. As a function call (deprecated): `link("node:a", "out", "node:b", "in")`
+    2. As a decorator (recommended): `@link` on a class with `source` and `target` attributes.
+
+    Decorator usage (code-first)::
+        @link
+        class _:
+            source = (analyze, "output")
+            target = (LangChainAgent3, "input")
 
     Args:
-        source_node_id: Source node id.
-        source_port: Source port id.
-        target_node_id: Target node id.
-        target_port: Target port id.
+        source_node_id: Source node id (function call form).
+        source_port: Source port id (function call form).
+        target_node_id: Target node id (function call form).
+        target_port: Target port id (function call form).
+
+    Returns:
+        None (function call form) or decorated class (decorator form).
+
+    Deprecated:
+        Function call form is deprecated. Use `@link` decorator on a class instead.
     """
 
-    return None
+    # Decorator form: first argument is a class
+    if isinstance(source_node_id, type):
+        cls = source_node_id
+        decorated = _attach_metadata(cls, kind="link")
+        # Parser will extract source/target attributes at parse time
+        return decorated
+
+    # Function call form (deprecated)
+    if source_node_id is not None and source_port is not None:
+        return None
+
+    # No arguments: return decorator
+    def decorator(cls: type[Any]) -> type[Any]:
+        return _attach_metadata(cls, kind="link")
+
+    return decorator
+

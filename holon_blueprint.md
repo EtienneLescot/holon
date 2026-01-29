@@ -76,7 +76,8 @@ Invariants :
   - Sur une **fonction** → node custom (code inline).
   - Sur une **classe avec `type=`** → node library (préfabriquée, basée sur attributs de classe).
 - `@workflow` : marque une fonction dont le corps est analysé pour dériver des liens implicites (workflow→node).
-- `link(source_node_id, source_port, target_node_id, target_port)` : déclare un lien explicite de ports à l'intérieur d'un `@workflow`.
+- `@link` : **[Recommandé]** décorateur sur une classe pour définir un lien explicite entre deux nodes. Utilise les attributs `source` et `target` (tuples de `(node, port)`).
+- `link(source_node_id, source_port, target_node_id, target_port)` : forme bas-niveau pour déclarer un lien explicite. **Déprécié** au profit de `@link` sur classe.
 - `spec(node_id, *, type: str, label?: str, props?: dict)` : forme bas-niveau pour déclarer une node préfabriquée (config pure). **Déprécié** au profit de `@node` sur classe.
 
 ### Le décorateur `@node` unifié (code-first, AI-friendly)
@@ -112,10 +113,47 @@ class MyGPT4:
 - **Refactoring-friendly** : renommer/modifier des attributs est plus simple qu'éditer du JSON ou des kwargs.
 - **Patchable via LibCST** : le parser extrait les attributs de classe et les convertit en `props` dict au moment de la génération du graphe.
 
+### Le décorateur `@link` code-first
+
+**Philosophie**: définir les liens entre nodes via des classes décorées plutôt que des appels de fonction avec strings.
+
+**Syntaxe**:
+```python
+@workflow
+async def main() -> str:
+    y = analyze(1)
+    
+    @link
+    class _:
+        source = (analyze, "output")
+        target = (LangChainAgent3, "input")
+    
+    @link
+    class _:
+        source = (LLMModel, "llm")
+        target = (LangChainAgent3, "llm")
+    
+    return await summarize(y)
+```
+
+**Règles**:
+- Le décorateur `@link` s'applique sur une classe (typiquement nommée `_` pour indiquer qu'elle est anonyme).
+- Attributs obligatoires : `source` et `target` (tuples de `(node_reference, port_name)`).
+- `node_reference` peut être :
+  - Une fonction décorée avec `@node` (node custom).
+  - Une classe décorée avec `@node(type="...")` (node library).
+  - Une string pour compatibilité (déprécié).
+
+**Pourquoi**:
+- **Code-first** : références directes aux nodes (autocomplétion IDE, refactoring automatique).
+- **Lisibilité** : structure claire (classe = lien, attributs = source/target).
+- **AI-friendly** : les agents IA peuvent suivre les références entre classes/fonctions.
+- **Type-safe** : plus de strings magiques, moins d'erreurs.
+
 ### Liens
 
 - Implicites : dérivés des appels à des nodes dans `@workflow`.
-- Explicites : déclarés via `link(...)` pour des ports.
+- Explicites : déclarés via `@link` sur classe (recommandé) ou `link(...)` fonction (déprécié).
 
 ## 6) Modèle d'édition (AI-first)
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from holon import node, workflow, link
+from holon import node, workflow, link, spec
+spec("spec:langchain.agent:d9e33753-ce71-4939-b25d-d5a28946819c", type = "langchain.agent", label = "LangChain Agent", props = {"system_prompt": "You are a helpful assistant.", "user_prompt": "Tell me a story about a brave robot."})
 
 
 @node(type="langchain.agent", id="spec:langchain.agent:1992b72f-78a7-4e0a-8f2f-9c7bbea81344")
@@ -53,11 +54,35 @@ async def summarize(x: int) -> str:
 @workflow
 async def main() -> str:
     y = analyze(1)
-    link("node:summarize", "output", "spec:langchain.agent:bcdef6df-2792-4b59-af0f-f62392b1337e", "input")
-    link("node:analyze", "output", "spec:langchain.agent:9c36310c-95e5-4b41-885f-62d0200f7f4f", "input")
-    link("spec:parser.json:55773ecd-02c4-419e-b754-091e7d54f06b", "parser", "spec:langchain.agent:9c36310c-95e5-4b41-885f-62d0200f7f4f", "outputParser")
-    link("node:analyze", "output", "spec:langchain.agent:9c36310c-95e5-4b41-885f-62d0200f7f4f", "input")
-    link("node:analyze", "output", "spec:langchain.agent:9c36310c-95e5-4b41-885f-62d0200f7f4f", "memory")
-    link("spec:llm.model:aa92f5e2-4ffe-48a9-97a3-a91eefb1fc4a", "llm", "spec:langchain.agent:9c36310c-95e5-4b41-885f-62d0200f7f4f", "llm")
-    link("spec:parser.json:55773ecd-02c4-419e-b754-091e7d54f06b", "parser", "spec:langchain.agent:9c36310c-95e5-4b41-885f-62d0200f7f4f", "input")
+    
+    @link
+    class _:
+        source = (summarize, "output")
+        target = ("spec:langchain.agent:bcdef6df-2792-4b59-af0f-f62392b1337e", "input")
+    
+    @link
+    class _:
+        source = (analyze, "output")
+        target = (LangChainAgent3, "input")
+    
+    @link
+    class _:
+        source = (JSONParser, "parser")
+        target = (LangChainAgent3, "outputParser")
+    
+    @link
+    class _:
+        source = (analyze, "output")
+        target = (LangChainAgent3, "memory")
+    
+    @link
+    class _:
+        source = (LLMModel, "llm")
+        target = (LangChainAgent3, "llm")
+    
+    @link
+    class _:
+        source = (JSONParser, "parser")
+        target = (LangChainAgent3, "input")
+    
     return await summarize(y)
