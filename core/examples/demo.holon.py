@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from holon import node, workflow, link, spec
+spec("spec:tool.example:cb4e8970-6193-4dbd-ac01-3b15246ea4f8", type = "tool.example", label = "Example Tool", props = {"name": "example_tool"})
+spec("spec:memory.buffer:afd7c8b7-a660-4a6c-8d92-f19b60e92532", type = "memory.buffer", label = "Memory Buffer", props = {"maxMessages": 20})
+spec("spec:llm.model:09bc5c47-aff9-4349-9d06-c1b30de9d7fa", type = "llm.model", label = "LLM Model", props = {"model_name": "gpt-4o", "temperature": 0.7})
 spec("spec:langchain.agent:d9e33753-ce71-4939-b25d-d5a28946819c", type = "langchain.agent", label = "LangChain Agent", props = {"system_prompt": "You are a helpful assistant.", "user_prompt": "Tell me a story about a brave robot."})
 
 
@@ -39,18 +42,6 @@ class LangChainAgent3:
     user_prompt = "What is the capital of France?"
 
 
-@node
-def analyze(x: int) -> int:
-    """Toy node for end-to-end demo."""
-
-    return x + 1
-
-
-@node
-async def summarize(x: int) -> str:
-    return f"result={x}"
-
-
 @workflow
 async def main() -> str:
     y = analyze(1)
@@ -84,5 +75,9 @@ async def main() -> str:
     class _:
         source = (JSONParser, "parser")
         target = (LangChainAgent3, "input")
+    link("spec:llm.model:09bc5c47-aff9-4349-9d06-c1b30de9d7fa", "llm", "spec:langchain.agent:d9e33753-ce71-4939-b25d-d5a28946819c", "llm")
+    link("workflow:main", "start", "spec:langchain.agent:d9e33753-ce71-4939-b25d-d5a28946819c", "input")
+    link("spec:memory.buffer:afd7c8b7-a660-4a6c-8d92-f19b60e92532", "memory", "spec:langchain.agent:d9e33753-ce71-4939-b25d-d5a28946819c", "memory")
+    link("spec:tool.example:cb4e8970-6193-4dbd-ac01-3b15246ea4f8", "tool", "spec:langchain.agent:d9e33753-ce71-4939-b25d-d5a28946819c", "tools")
     
     return await summarize(y)

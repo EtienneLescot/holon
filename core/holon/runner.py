@@ -118,39 +118,61 @@ class WorkflowRunner:
             ```
         """
         file_path = Path(file_path)
+        sys.stderr.write(f"[RUNNER] run_workflow_file: {file_path}, workflow={workflow_name}\n")
+        sys.stderr.flush()
         
         if not file_path.exists():
+            sys.stderr.write(f"[RUNNER] ERROR: File not found: {file_path}\n")
+            sys.stderr.flush()
             return ExecutionResult(
                 error=FileNotFoundError(f"Workflow file not found: {file_path}")
             )
         
         if not file_path.suffix == ".py" or not file_path.name.endswith(".holon.py"):
+            sys.stderr.write(f"[RUNNER] ERROR: Invalid file extension: {file_path}\n")
+            sys.stderr.flush()
             return ExecutionResult(
                 error=ValueError(f"File must be a .holon.py file: {file_path}")
             )
         
         try:
             # Load the module dynamically
+            sys.stderr.write(f"[RUNNER] Loading module from {file_path}\n")
+            sys.stderr.flush()
             module = self._load_module(file_path)
+            sys.stderr.write(f"[RUNNER] Module loaded successfully\n")
+            sys.stderr.flush()
             
             # Find the workflow function
+            sys.stderr.write(f"[RUNNER] Looking for workflow function '{workflow_name}'\n")
+            sys.stderr.flush()
             workflow_fn = getattr(module, workflow_name, None)
             if workflow_fn is None:
+                sys.stderr.write(f"[RUNNER] ERROR: Workflow '{workflow_name}' not found in module\n")
+                sys.stderr.flush()
                 return ExecutionResult(
                     error=AttributeError(f"Workflow '{workflow_name}' not found in {file_path}")
                 )
             
             # Verify it's a workflow
             metadata = getattr(workflow_fn, "__holon_decorator__", None)
+            sys.stderr.write(f"[RUNNER] Workflow metadata: {metadata}\n")
+            sys.stderr.flush()
             if metadata is None or metadata.kind != "workflow":
+                sys.stderr.write(f"[RUNNER] ERROR: Function '{workflow_name}' is not a valid workflow\n")
+                sys.stderr.flush()
                 return ExecutionResult(
                     error=TypeError(f"Function '{workflow_name}' is not decorated with @workflow")
                 )
             
             # Execute the workflow
+            sys.stderr.write(f"[RUNNER] Executing workflow '{workflow_name}'\n")
+            sys.stderr.flush()
             return await self.run_workflow(workflow_fn, **kwargs)
         
         except Exception as e:
+            sys.stderr.write(f"[RUNNER] Exception during execution: {type(e).__name__}: {e}\n")
+            sys.stderr.flush()
             return ExecutionResult(error=e)
     
     async def run_workflow(
@@ -170,13 +192,21 @@ class WorkflowRunner:
         try:
             # Check if workflow is async
             if inspect.iscoroutinefunction(workflow_fn):
+                sys.stderr.write(f"[RUNNER] Workflow is async, awaiting...\n")
+                sys.stderr.flush()
                 output = await workflow_fn(**kwargs)
             else:
+                sys.stderr.write(f"[RUNNER] Workflow is sync, calling...\n")
+                sys.stderr.flush()
                 output = workflow_fn(**kwargs)
             
+            sys.stderr.write(f"[RUNNER] Workflow completed successfully, output type: {type(output).__name__}\n")
+            sys.stderr.flush()
             return ExecutionResult(output=output)
         
         except Exception as e:
+            sys.stderr.write(f"[RUNNER] Workflow raised exception: {type(e).__name__}: {e}\n")
+            sys.stderr.flush()
             return ExecutionResult(error=e)
     
     def _load_module(self, file_path: Path) -> Any:

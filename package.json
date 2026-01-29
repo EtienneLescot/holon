@@ -4,8 +4,13 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "node scripts/dev.mjs",
-    "dev:demo": "node scripts/dev.mjs --workflow core/examples/demo.holon.py",
+    "dev": "concurrently -n API,UI -c blue,green \"nodemon --watch core --ext py --exec \\\"bash -lc 'if [ -n \\\\\\\"$WORKFLOW_FILE\\\\\\\" ]; then .venv/bin/python core/holon/devserver.py --file \\\\\\\"$WORKFLOW_FILE\\\\\\\" --port 8787; else .venv/bin/python core/holon/devserver.py --port 8787; fi'\\\"\" \"cd ui && npm run dev -- --host 127.0.0.1 --port 5173\"",
+    "dev:demo": "WORKFLOW_FILE=core/examples/demo.holon.py npm run dev",
+    "dev:api-watch": "nodemon --watch core --ext py --exec \"bash -lc 'if [ -n \\\\\\\"$WORKFLOW_FILE\\\\\\\" ]; then .venv/bin/python core/holon/devserver.py --file \\\\\\\"$WORKFLOW_FILE\\\\\\\" --port 8787; else .venv/bin/python core/holon/devserver.py --port 8787; fi'\"",
     "build": "cd ui && npm run build"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "nodemon": "^3.1.11"
   }
 }

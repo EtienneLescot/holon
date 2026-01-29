@@ -40,6 +40,7 @@ from holon.services.patcher import (
     patch_spec_node,
 )
 from holon.library.credentials import credentials_manager
+from holon.runner import run_workflow_sync
 
 
 class _State:
@@ -174,6 +175,7 @@ def _make_handler(state: _State) -> type[BaseHTTPRequestHandler]:
                             "patch_node": "/api/patch_node",
                             "patch_spec_node": "/api/patch_spec_node",
                             "delete_node": "/api/delete_node",
+                            "execute_workflow": "/api/execute_workflow",
                         },
                         "ui_hint": "The UI runs on the Vite dev server (typically http://127.0.0.1:5173/). This devserver is API-only.",
                     },
@@ -320,6 +322,26 @@ def _make_handler(state: _State) -> type[BaseHTTPRequestHandler]:
                     )
                     state.save()
                     self._send_json(200, {"source": state.source})
+                    return
+
+                if self.path == "/api/execute_workflow":
+                    workflow_name = body.get("workflow_name")
+                    if not isinstance(workflow_name, str):
+                        workflow_name = "main"
+
+                    if state.file_path is None:
+                        raise ValueError("No file backing the devserver; cannot execute workflow")
+
+                    # Run synchronously via helper
+                    sys.stderr.write(f"[API] Executing workflow '{workflow_name}' from {state.file_path}\n")
+                    sys.stderr.flush()
+                    result = run_workflow_sync(str(state.file_path), workflow_name=workflow_name)
+                    sys.stderr.write(f"[API] Workflow '{workflow_name}' completed: success={result.success}\n")
+                    sys.stderr.flush()
+                    if result.success:
+                        self._send_json(200, {"output": result.output})
+                    else:
+                        self._send_json(200, {"output": {"error": str(result.error)}})
                     return
 
                 if self.path == "/api/delete_node":

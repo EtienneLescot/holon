@@ -44,3 +44,38 @@ Not implemented yet:
 The browser dev mode is for UI iteration (Vite HMR). AI actions are not supported there.
 
 - `npm run dev:demo`
+
+## Development (recommended)
+
+During development you can run both the Python devserver (API) and the UI dev server (Vite) with one command. The API will auto-restart when Python files under `core/` change and the UI benefits from Vite hot-reload.
+
+- Start everything in one terminal:
+
+```bash
+npm run dev
+```
+
+What this does:
+- `API` (Python devserver) runs under `nodemon` and restarts automatically when files in `core/` change.
+- `UI` runs under `vite` with HMR; changes to `ui/src` are applied automatically.
+- Both process logs are shown in the same terminal with colored prefixes so you can follow API and UI output together.
+
+If you prefer to run them separately:
+
+- Start API only (auto-restart):
+```bash
+npm run dev:api-watch
+# or directly: .venv/bin/python core/holon/devserver.py --file core/examples/demo.holon.py --port 8787
+```
+
+- Start UI only:
+```bash
+cd ui
+npm run dev
+```
+
+When building for the VS Code extension (production webview assets), run:
+
+```bash
+cd ui && npm run build
+```

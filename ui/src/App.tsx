@@ -289,9 +289,10 @@ export default function App(): JSX.Element {
   const onRunWorkflow = useCallback(() => {
     // Find the workflow node name from selected node
     const workflowNode = coreNodes.find(n => n.id === selectedNodeId && n.kind === "workflow");
+    console.log("onRunWorkflow: selectedNodeId=", selectedNodeId, "workflowNode=", workflowNode);
     if (!workflowNode) return;
-    
     postToExtension({ type: "ui.workflow.run", workflowName: workflowNode.name });
+    console.log("posted ui.workflow.run", workflowNode.name);
   }, [selectedNodeId, coreNodes]);
 
   useEffect(() => {
@@ -300,6 +301,9 @@ export default function App(): JSX.Element {
 
   useEffect(() => {
     const handler = (event: MessageEvent) => {
+      // Log all inbound postMessage events for debugging
+      // eslint-disable-next-line no-console
+      console.log("UI incoming message event:", event.data);
       // Ignore messages that don't have a type property or are from external sources
       if (!event.data || typeof event.data !== 'object' || !event.data.type || typeof event.data.type !== 'string') {
         return;
@@ -341,6 +345,8 @@ export default function App(): JSX.Element {
       }
       
       if (msg.type === "execution.output") {
+        // eslint-disable-next-line no-console
+        console.log("setting executionOutput:", msg.output);
         setExecutionOutput(msg.output);
       }
     };

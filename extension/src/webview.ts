@@ -729,7 +729,17 @@ export class HolonPanel {
         filePath: targetUri.fsPath,
         workflowName: workflowName,
       });
-      this.postMessage({ type: "execution.output", output: result });
+      // Normalize output to an object so the UI Zod schema accepts it,
+      // and key it by the workflow node id expected by the UI (`workflow:<name>`).
+      let out: unknown = result;
+      if (isObject(result) && Object.prototype.hasOwnProperty.call(result, "output")) {
+        out = (result as Record<string, unknown>)["output"];
+      }
+      if (!isObject(out)) {
+        out = { result: out };
+      }
+      const key = `workflow:${workflowName}`;
+      this.postMessage({ type: "execution.output", output: { [key]: out as Record<string, unknown> } });
     } catch (error) {
       this.postMessage({
         type: "execution.output",

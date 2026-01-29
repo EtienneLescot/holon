@@ -55,12 +55,17 @@ export function postToExtension(message: ToExtensionMessage): void {
   if (!api) {
     // Browser mode: forward to the dev bridge if present.
     if (browserBridge) {
+      // Log outgoing message from UI to extension/bridge
+      // eslint-disable-next-line no-console
+      console.log("postToExtension -> bridge:", message);
       browserBridge.postMessageFromUi(message);
     } else {
       pendingMessages.push(message);
     }
     return;
   }
+  // eslint-disable-next-line no-console
+  console.log("postToExtension -> vscodeApi:", message);
   api.postMessage(message);
 }
 

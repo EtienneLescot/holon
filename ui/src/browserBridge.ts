@@ -177,6 +177,12 @@ function positionsKey(scope: string): string {
 }
 
 function postToUi(message: unknown): void {
+  try {
+    // Log messages emitted from the bridge for easier debugging in browser dev mode.
+    // This will appear in the browser console.
+    // eslint-disable-next-line no-console
+    console.log("browserBridge -> ui postToUi:", message);
+  } catch {}
   window.postMessage(message, "*");
 }
 
@@ -369,6 +375,8 @@ class BrowserDevBridge {
   }
 
   async handle(message: unknown): Promise<void> {
+    // eslint-disable-next-line no-console
+    console.log("BrowserDevBridge.handle incoming:", message);
     const parsed = ToExtensionMessageSchema.safeParse(message);
     if (!parsed.success) {
       return;
@@ -556,6 +564,26 @@ class BrowserDevBridge {
       });
 
       await this.parseAndSend("ui.edgeCreated");
+      return;
+    }
+
+    if (msg.type === "ui.workflow.run") {
+      const workflowName = msg.workflowName;
+      try {
+        const r = await fetchJson<{ output: unknown }>("/api/execute_workflow", {
+          method: "POST",
+          body: JSON.stringify({ workflow_name: workflowName }),
+        });
+        let out: unknown = (r as any).output ?? r;
+        if (typeof out !== "object" || out === null) {
+          out = { result: out };
+        }
+        const key = `workflow:${workflowName}`;
+        postToUi({ type: "execution.output", output: { [key]: out as Record<string, unknown> } });
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        postToUi({ type: "execution.output", output: { error: message } });
+      }
       return;
     }
   }
