@@ -522,13 +522,32 @@ export class HolonPanel {
 
     this.output.appendLine(`refreshAllDescriptions: ${candidates.length} nodes`);
 
-    for (const nodeId of candidates) {
-      try {
-        await this.describeNode(nodeId);
-      } catch {
-        // describeNode already emits an ai.status error; keep going.
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: "Holon: Refreshing descriptions",
+        cancellable: false,
+      },
+      async (progress) => {
+        let completed = 0;
+        for (const nodeId of candidates) {
+          progress.report({
+            message: `${completed + 1}/${candidates.length} - ${nodeId}`,
+            increment: (100 / candidates.length),
+          });
+          try {
+            await this.describeNode(nodeId);
+            completed++;
+          } catch {
+            // describeNode already emits an ai.status error; keep going.
+            completed++;
+          }
+        }
+        progress.report({ message: "Done", increment: 100 });
       }
-    }
+    );
+
+    vscode.window.showInformationMessage(`Holon: Refreshed descriptions for ${candidates.length} nodes.`);
   }
 
   private async describeNode(nodeId: string): Promise<void> {
