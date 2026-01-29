@@ -17,7 +17,7 @@
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
 
-    "types": []
+    "types": ["vite/client"]
   },
   "include": ["src"]
 }

@@ -319,6 +319,27 @@ export class RpcClient {
     return result["source"];
   }
 
+  public async executeWorkflow(input: {
+    filePath: string;
+    workflowName: string;
+  }): Promise<Record<string, unknown>> {
+    const response = await this.request({
+      method: "execute_workflow",
+      params: {
+        file_path: input.filePath,
+        workflow_name: input.workflowName,
+      },
+    });
+    if (response.error) {
+      throw new Error(response.error.message);
+    }
+    const result = response.result as unknown;
+    if (!isObject(result)) {
+      throw new Error("Invalid execute_workflow response type");
+    }
+    return result as Record<string, unknown>;
+  }
+
   public async addLink(
     source: string,
     workflowName: string,

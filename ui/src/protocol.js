@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ToExtensionMessageSchema = exports.UiCredentialsRequestSchema = exports.UiNodeCreatedSchema = exports.UiEdgeCreatedSchema = exports.UiNodePatchRequestSchema = exports.UiNodeDeleteRequestSchema = exports.UiNodeDescribeRequestSchema = exports.UiNodeAiRequestSchema = exports.UiNodesChangedSchema = exports.UiReadySchema = exports.ToUiMessageSchema = exports.CredentialsUpdateSchema = exports.AiPromptSchema = exports.AiStatusSchema = exports.GraphErrorSchema = exports.GraphUpdateSchema = exports.GraphInitSchema = exports.CoreGraphSchema = exports.CoreEdgeSchema = exports.CoreNodeSchema = exports.PortSpecSchema = exports.PortKindSchema = exports.PortDirectionSchema = exports.HolonKindSchema = exports.PositionSchema = void 0;
+exports.ToExtensionMessageSchema = exports.UiWorkflowRunSchema = exports.UiCredentialsRequestSchema = exports.UiNodeCreatedSchema = exports.UiEdgeCreatedSchema = exports.UiNodePatchRequestSchema = exports.UiNodeDeleteRequestSchema = exports.UiNodeDescribeRequestSchema = exports.UiNodeAiRequestSchema = exports.UiNodesChangedSchema = exports.UiReadySchema = exports.ToUiMessageSchema = exports.ExecutionOutputSchema = exports.WorkflowExecutionResultSchema = exports.CredentialsUpdateSchema = exports.AiPromptSchema = exports.AiStatusSchema = exports.GraphErrorSchema = exports.GraphUpdateSchema = exports.GraphInitSchema = exports.CoreGraphSchema = exports.CoreEdgeSchema = exports.CoreNodeSchema = exports.PortSpecSchema = exports.PortKindSchema = exports.PortDirectionSchema = exports.HolonKindSchema = exports.PositionSchema = void 0;
 const zod_1 = require("zod");
 exports.PositionSchema = zod_1.z.object({
     x: zod_1.z.number(),
@@ -76,6 +76,14 @@ exports.CredentialsUpdateSchema = zod_1.z.object({
     type: zod_1.z.literal("credentials.update"),
     credentials: zod_1.z.record(zod_1.z.record(zod_1.z.string())),
 });
+exports.WorkflowExecutionResultSchema = zod_1.z.object({
+    type: zod_1.z.literal("workflow.executionResult"),
+    output: zod_1.z.record(zod_1.z.any()),
+});
+exports.ExecutionOutputSchema = zod_1.z.object({
+    type: zod_1.z.literal("execution.output"),
+    output: zod_1.z.record(zod_1.z.unknown()),
+});
 exports.ToUiMessageSchema = zod_1.z.union([
     exports.GraphInitSchema,
     exports.GraphUpdateSchema,
@@ -83,6 +91,8 @@ exports.ToUiMessageSchema = zod_1.z.union([
     exports.AiStatusSchema,
     exports.AiPromptSchema,
     exports.CredentialsUpdateSchema,
+    exports.WorkflowExecutionResultSchema,
+    exports.ExecutionOutputSchema,
 ]);
 exports.UiReadySchema = zod_1.z.object({
     type: zod_1.z.literal("ui.ready"),
@@ -145,6 +155,10 @@ exports.UiCredentialsRequestSchema = zod_1.z.object({
     provider: zod_1.z.string(),
     credentials: zod_1.z.record(zod_1.z.string()),
 });
+exports.UiWorkflowRunSchema = zod_1.z.object({
+    type: zod_1.z.literal("ui.workflow.run"),
+    workflowName: zod_1.z.string(),
+});
 exports.ToExtensionMessageSchema = zod_1.z.union([
     exports.UiReadySchema,
     exports.UiNodesChangedSchema,
@@ -155,4 +169,5 @@ exports.ToExtensionMessageSchema = zod_1.z.union([
     exports.UiEdgeCreatedSchema,
     exports.UiNodeCreatedSchema,
     exports.UiCredentialsRequestSchema,
+    exports.UiWorkflowRunSchema,
 ]);

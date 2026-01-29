@@ -1,6 +1,174 @@
 import { ToExtensionMessageSchema, type CoreGraph } from "./protocol";
 import { getVsCodeApi, registerBrowserBridge } from "./vscodeBridge";
-import { prepareUiGraph, extractTopLevelFunction } from "./logic";
+
+// Inline copies to avoid Rollup import resolution issues
+
+type PortDirection = "input" | "output";
+type PortKind = "data" | "llm" | "memory" | "tool" | "parser" | "control";
+
+type PortSpec = {
+  id: string;
+  direction: PortDirection;
+  kind?: PortKind;
+  label?: string;
+  multi?: boolean;
+};
+
+const SPEC_TYPE_REGISTRY: Record<string, { type: string; ports: PortSpec[] }> = {
+  "langchain.agent": {
+    type: "langchain.agent",
+    ports: [
+      { id: "input", direction: "input", kind: "data", label: "input" },
+      { id: "llm", direction: "input", kind: "llm", label: "llm" },
+      { id: "memory", direction: "input", kind: "memory", label: "memory" },
+      { id: "tools", direction: "input", kind: "tool", label: "tools", multi: true },
+      { id: "output", direction: "output", kind: "data", label: "output" },
+    ],
+  },
+  "llm.model": {
+    type: "llm.model",
+    ports: [{ id: "llm", direction: "output", kind: "llm", label: "llm" }],
+  },
+  "memory.buffer": {
+    type: "memory.buffer",
+    ports: [{ id: "memory", direction: "output", kind: "memory", label: "memory" }],
+  },
+  "tool.example": {
+    type: "tool.example",
+    ports: [{ id: "tool", direction: "output", kind: "tool", label: "tool" }],
+  },
+  "parser.json": {
+    type: "parser.json",
+    ports: [{ id: "parser", direction: "output", kind: "parser", label: "parser" }],
+  },
+};
+
+function inferPorts(input: { kind: "node" | "workflow" | "spec"; nodeType?: string | undefined }): PortSpec[] {
+  if (input.kind === "workflow") {
+    return [{ id: "start", direction: "output", kind: "control", label: "start" }];
+  }
+  if (input.kind === "node") {
+    return [
+      { id: "input", direction: "input", kind: "data", label: "input" },
+      { id: "output", direction: "output", kind: "data", label: "output" },
+    ];
+  }
+
+  const type = input.nodeType;
+  if (type && SPEC_TYPE_REGISTRY[type]) {
+    return SPEC_TYPE_REGISTRY[type].ports;
+  }
+
+  return [
+    { id: "input", direction: "input", kind: "data", label: "input" },
+    { id: "output", direction: "output", kind: "data", label: "output" },
+  ];
+}
+
+// Inline copies of prepareUiGraph and extractTopLevelFunction to avoid Rollup import issues
+
+type UiNode = {
+  id: string;
+  name: string;
+  kind: "node" | "workflow" | "spec";
+  label: string;
+  nodeType?: string | null;
+  props?: Record<string, unknown> | null;
+  position: { x: number; y: number } | null;
+  summary?: string | null;
+  badges?: string[] | null;
+  ports: PortSpec[];
+};
+
+type UiEdge = {
+  source: string;
+  target: string;
+  sourcePort: string;
+  targetPort: string;
+  kind: "code" | "link";
+};
+
+function prepareUiGraph(
+  graph: any,
+  positions: Record<string, { x: number; y: number }>,
+  annotations: Record<string, { summary?: string; badges?: string[] }>
+): { nodes: UiNode[]; edges: UiEdge[] } {
+  const nodes: UiNode[] = (graph.nodes || []).map((n: any) => {
+    const pos = positions[n.id];
+    const ann = annotations[n.id];
+    const nodeType = n.nodeType ?? n.node_type;
+    const label = n.label ?? (n.kind === "workflow" ? `workflow: ${n.name}` : n.name);
+
+    return {
+      id: n.id,
+      name: n.name,
+      kind: n.kind,
+      label,
+      nodeType,
+      props: n.props,
+      position: pos || n.position || { x: 0, y: 0 },
+      summary: ann?.summary || n.summary,
+      badges: ann?.badges || n.badges,
+      ports: n.ports || inferPorts({ kind: n.kind, nodeType }),
+    };
+  });
+
+  const edges: UiEdge[] = (graph.edges || []).map((e: any) => {
+    const sourcePort = e.sourcePort ?? e.source_port ?? "output";
+    const targetPort = e.targetPort ?? e.target_port ?? "input";
+    const kind = e.kind ?? "code";
+    return { source: e.source, target: e.target, sourcePort, targetPort, kind };
+  });
+
+  const seen = new Set<string>();
+  const dedupedEdges = edges.filter((e) => {
+    const key = `${e.kind}:${e.source}:${e.sourcePort}->${e.target}:${e.targetPort}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  return { nodes, edges: dedupedEdges };
+}
+
+function extractTopLevelFunction(source: string, functionName: string): string | undefined {
+  const lines = source.split(/\r?\n/);
+  const escapedName = functionName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const defRe = new RegExp(`^(?<indent>\\s*)(async\\s+def|def)\\s+${escapedName}\\s*\\(`);
+
+  let defLine = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i]?.match(defRe);
+    if (m && (m.groups?.["indent"] || "").length === 0) {
+      defLine = i;
+      break;
+    }
+  }
+
+  if (defLine === -1) return undefined;
+
+  let start = defLine;
+  for (let i = defLine - 1; i >= 0; i--) {
+    const line = lines[i] || "";
+    if (line.trim().startsWith("@") || line.trim() === "") {
+      if (line.trim().startsWith("@")) start = i;
+    } else {
+      break;
+    }
+  }
+
+  let end = lines.length;
+  const boundaryRe = /^(@|def\b|async\s+def\b|class\b)/;
+  for (let i = defLine + 1; i < lines.length; i++) {
+    const line = lines[i] || "";
+    if (line.length > 0 && !line.startsWith(" ") && !line.startsWith("\t") && boundaryRe.test(line)) {
+      end = i;
+      break;
+    }
+  }
+
+  return lines.slice(start, end).join("\n").trimEnd() + "\n";
+}
 
 const POSITIONS_KEY_PREFIX = "holon.positions.v1:";
 

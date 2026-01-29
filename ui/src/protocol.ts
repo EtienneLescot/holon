@@ -94,6 +94,16 @@ export const CredentialsUpdateSchema = z.object({
   credentials: z.record(z.record(z.string())),
 });
 
+export const WorkflowExecutionResultSchema = z.object({
+  type: z.literal("workflow.executionResult"),
+  output: z.record(z.any()),
+});
+
+export const ExecutionOutputSchema = z.object({
+  type: z.literal("execution.output"),
+  output: z.record(z.unknown()),
+});
+
 export const ToUiMessageSchema = z.union([
   GraphInitSchema,
   GraphUpdateSchema,
@@ -101,6 +111,8 @@ export const ToUiMessageSchema = z.union([
   AiStatusSchema,
   AiPromptSchema,
   CredentialsUpdateSchema,
+  WorkflowExecutionResultSchema,
+  ExecutionOutputSchema,
 ]);
 export type ToUiMessage = z.infer<typeof ToUiMessageSchema>;
 
@@ -176,6 +188,11 @@ export const UiCredentialsRequestSchema = z.object({
   credentials: z.record(z.string()),
 });
 
+export const UiWorkflowRunSchema = z.object({
+  type: z.literal("ui.workflow.run"),
+  workflowName: z.string(),
+});
+
 export const ToExtensionMessageSchema = z.union([
   UiReadySchema,
   UiNodesChangedSchema,
@@ -186,5 +203,6 @@ export const ToExtensionMessageSchema = z.union([
   UiEdgeCreatedSchema,
   UiNodeCreatedSchema,
   UiCredentialsRequestSchema,
+  UiWorkflowRunSchema,
 ]);
 export type ToExtensionMessage = z.infer<typeof ToExtensionMessageSchema>;

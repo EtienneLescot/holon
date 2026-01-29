@@ -39,6 +39,9 @@ strict = true
 warn_return_any = true
 warn_unused_configs = true
 
+[tool.poetry.scripts]
+holon = "holon.cli:main"
+
 [build-system]
 requires = ["poetry-core>=1.8.0"]
 build-backend = "poetry.core.masonry.api"

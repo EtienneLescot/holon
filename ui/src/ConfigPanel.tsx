@@ -7,6 +7,8 @@ type Props = {
   onDelete?: (nodeId: string) => void;
   onPatch?: (nodeId: string, props: Record<string, any>) => void;
   onOpenCredentials?: (provider: string) => void;
+  onRunWorkflow?: () => void;
+  executionOutput?: Record<string, any> | null;
 };
 
 function prettyJson(value: unknown): string {
@@ -20,7 +22,7 @@ function prettyJson(value: unknown): string {
 export function ConfigPanel(props: Props): JSX.Element {
   const isOpen = Boolean(props.node);
   const headerLabel = props.node?.label ?? (props.node ? `${props.node.kind}: ${props.node.name}` : "");
-  const [activeTab, setActiveTab] = useState<"config" | "json">("config");
+  const [activeTab, setActiveTab] = useState<"config" | "output">("config");
 
   const propsText = useMemo(() => {
     if (!props.node) return "";
@@ -66,6 +68,21 @@ export function ConfigPanel(props: Props): JSX.Element {
                   {props.node.nodeType}
                 </span>
               ) : null}
+              
+              {/* Run Workflow Button for workflow nodes */}
+              {props.node.kind === "workflow" && props.onRunWorkflow && (
+                <button
+                  type="button"
+                  onClick={props.onRunWorkflow}
+                  className="px-4 py-2 rounded-xl bg-green-500/20 hover:bg-green-500 text-green-400 hover:text-white text-[10px] font-black uppercase tracking-[0.2em] border border-green-500/30 hover:border-green-500 transition-all ml-auto flex items-center gap-2 shadow-lg hover:shadow-green-500/20"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                    <polygon points="5 3 19 12 5 21 5 3" />
+                  </svg>
+                  Run Workflow
+                </button>
+              )}
+              
               {props.node.nodeType === "llm.model" && props.onOpenCredentials && (
                 <button
                   type="button"
@@ -94,12 +111,12 @@ export function ConfigPanel(props: Props): JSX.Element {
                 type="button"
                 className={
                   "pb-8 text-[11px] font-black uppercase tracking-[0.3em] transition-all relative " +
-                  (activeTab === "json" ? "text-blue-400" : "text-white/20 hover:text-white/40")
+                  (activeTab === "output" ? "text-blue-400" : "text-white/20 hover:text-white/40")
                 }
-                onClick={() => setActiveTab("json")}
+                onClick={() => setActiveTab("output")}
               >
-                Raw Source
-                {activeTab === "json" && <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-blue-500 rounded-t-full shadow-[0_-4px_10px_rgba(59,130,246,0.5)]" />}
+                Output
+                {activeTab === "output" && <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-blue-500 rounded-t-full shadow-[0_-4px_10px_rgba(59,130,246,0.5)]" />}
               </button>
             </div>
 
@@ -194,11 +211,38 @@ export function ConfigPanel(props: Props): JSX.Element {
                   </>
                 ) : (
                   <section className="space-y-8 h-full">
-                    <h3 className="text-[11px] font-black uppercase tracking-[0.5em] text-white/10">Source JSON</h3>
+                    <h3 className="text-[11px] font-black uppercase tracking-[0.5em] text-white/10">Execution Output</h3>
                     <div className="rounded-[40px] bg-black/50 border border-white/5 h-full p-10 shadow-inner">
-                      <pre className="text-[11px] leading-6 text-white/10 font-mono h-full overflow-auto custom-scrollbar">
-                        {prettyJson(props.node)}
-                      </pre>
+                      {props.executionOutput && props.executionOutput[props.node.id] ? (
+                        <div className="space-y-6">
+                          <div className="flex items-center gap-4 pb-4 border-b border-white/5">
+                            <span className="px-3 py-1.5 rounded-lg bg-green-500/20 text-green-400 text-[9px] font-black uppercase tracking-[0.2em]">
+                              ✓ Executed
+                            </span>
+                          </div>
+                          <pre className="text-[12px] leading-6 text-blue-100/80 font-mono h-full overflow-auto custom-scrollbar">
+                            {prettyJson(props.executionOutput[props.node.id])}
+                          </pre>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center justify-center h-full text-center space-y-6">
+                          <div className="w-20 h-20 rounded-[30px] bg-white/5 flex items-center justify-center border border-white/5">
+                            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeOpacity="0.2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                              <polyline points="7 10 12 15 17 10"></polyline>
+                              <line x1="12" y1="15" x2="12" y2="3"></line>
+                            </svg>
+                          </div>
+                          <div className="space-y-2">
+                            <p className="text-white/30 text-[10px] font-black uppercase tracking-[0.3em]">
+                              No output available
+                            </p>
+                            <p className="text-white/10 text-[9px] font-medium max-w-[240px]">
+                              Run the workflow to see execution results for this node
+                            </p>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </section>
                 )}

@@ -1,6 +1,6 @@
 # Holon — Status & Next Steps
 
-Date: 2026-01-29
+Date: 2026-01-29 (Updated)
 
 This file captures the current state (what is implemented) and the next concrete steps.
 
@@ -25,14 +25,21 @@ Core (Python):
 - Patching via LibCST:
   - `patch_node(...)` for `node:*`.
   - `patch_spec_node(...)` for `spec:*`.
-- RPC over stdio JSONL: `parse_source`, `rename_node`, `patch_node`, `add_spec_node`, `add_link`, `patch_spec_node`.
+- RPC over stdio JSONL: `parse_source`, `rename_node`, `patch_node`, `add_spec_node`, `add_link`, `patch_spec_node`, `execute_workflow`.
 - Pydantic validation for RPC params with clear error messages.
-- **Workflow execution (Phase 6 initial)**:
+- **Workflow execution (Phase 6)**:
   - `WorkflowRunner` class for executing `.holon.py` workflows
   - Support for sync and async @node functions
   - Proper error handling with `ExecutionResult`
   - Module loading and isolation
-  - Comprehensive test coverage (14 tests)
+  - **Spec node resolution**: automatic resolution of spec nodes at runtime
+  - **Registry system**: `SpecTypeRegistry` with resolver functions
+  - **Built-in resolvers**: llm.model, memory.buffer, tool.function
+  - **LangChain integration**: langchain.agent, langchain.memory.buffer, langchain.tool
+  - Comprehensive test coverage (51 tests total: 29 runner + 16 registry + 6 spec resolution)
+- **CLI commands**:
+  - `holon run <file> [--workflow=NAME]` - Execute workflows from command line
+  - `holon list <file>` - List workflows, nodes, and spec nodes in a file
 
 Extension (VS Code):
 - Webview renders `graph.init/update` and live-updates on file edits.
@@ -48,17 +55,31 @@ Extension (VS Code):
   - `holon.open` — Open Holon webview.
   - `holon.refreshDescriptions` — Refresh descriptions for all nodes with progress indicator.
   - `holon.reloadUi` — Reload webview HTML (dev).
+- **Workflow execution from UI**:
+  - RPC method `execute_workflow` integrated
+  - TypeScript `executeWorkflow()` method in RPC client
+  - Message handling for `ui.workflow.run` and `execution.output`
 
 UI (React):
 - Node cards show badges (freeform strings) + summary.
 - Buttons: "AI" (edit) + "Describe".
+- **Execution features**:
+  - "Run Workflow" button for workflow nodes
+  - "Output" tab (replaces "Raw Source") displays execution results
+  - Formatted JSON output with syntax highlighting
+  - Error display in output tab
+  - State management for execution results
+- **Build system**: Fixed Vite/Rollup configuration for production builds
 
 ## Known limitations / pitfalls
 
 - Browser dev mode cannot call Copilot (`vscode.lm`). The intended fallback is to generate a ready-to-copy "AI prompt" (built from the user instruction + node context) so you can run it in your own agent and apply the resulting surgical patch manually.
 - Ports are still a UI contract (not enforced/executed at runtime).
 - `patch_spec_node` is conservative: it patches module-level `spec(node_id, ...)` calls only.
-- **Execution**: Currently supports only Python @node functions. Spec nodes (@node(type="...")) are not yet resolved at runtime.
+- **Execution**: Spec nodes are resolved at runtime but port-based data flow is not yet implemented.
+- **UI Build**: BrowserBridge only loads in DEV mode (not needed for VS Code extension, only for standalone browser mode).
+- **Output granularity**: Execution currently shows final workflow output only, not per-node intermediate results.
+- **No streaming**: Execution results only appear after workflow completes.
 
 ## Next steps 🔜 (highest impact)
 
@@ -78,12 +99,14 @@ UI (React):
 - ✅ User confirmation dialog before batch refresh
 - ✅ Success message after completion
 
-### 3) Formalize the shared contract (ports + node types) 🔄
-- Move the port inference logic to a dedicated shared place (today it's duplicated between extension and browser bridge).
-- Define a minimal registry of known `spec` types and their port shapes.
-- Consider TypeScript compilation warnings about shared code imports.
+### 3) Formalize the shared contract (ports + node types) 🔄 (IN PROGRESS)
+- ✅ Port inference logic centralized in `ui/src/ports.ts`
+- ✅ Minimal registry of known spec types (llm.model, memory.buffer, tool.example, parser.json, langchain.agent)
+- ⚠️ TypeScript cross-folder imports resolved but with inline copies in browserBridge (technical debt)
+- 🔜 Create proper shared package or build pipeline for truly shared code
+- 🔜 Runtime port validation
 
-### 4) Phase 6: Basic execution ✅ (DONE - initial implementation)
+### 4) Phase 6: Basic execution ✅ (DONE)
 
 **Completed (2026-01-29):**
 - ✅ `WorkflowRunner` class with clean async API
@@ -96,7 +119,7 @@ UI (React):
 
 **Architecture highlights:**
 - Clean separation: execution is opt-in and separate from editing/parsing
-- Extensible: prepared for future spec node resolution
+- Extensible: prepared for spec node resolution
 - Type-safe: proper typing and error handling
 - Simple API: `runner.run_workflow_file(path, name)` → `ExecutionResult`
 
@@ -110,8 +133,13 @@ UI (React):
 - ✅ LangChain integration with specific resolvers
 - ✅ Prop extraction from class attributes
 - ✅ Spec node caching by ID
-- ✅ Comprehensive test coverage (20+ tests)
-- ✅ Documentation and examples
+- ✅ Comprehensive test coverage (51 total: 29 runner + 16 registry + 6 spec resolution)
+- ✅ Documentation and examples (REGISTRY_README.md)
+- ✅ CLI commands (`holon run`, `holon list`)
+- ✅ UI workflow execution with "Run Workflow" button
+- ✅ Output tab in UI for viewing execution results
+- ✅ RPC integration for extension → Python execution
+- ✅ Vite/Rollup build configuration fixed
 
 **Architecture:**
 ```python
@@ -131,21 +159,46 @@ class ChatMemory:
 - Built-in types: `llm.model`, `memory.buffer`, `tool.function`
 - LangChain types: `langchain.agent`, `langchain.memory.buffer`, `langchain.tool`
 
-**Files created:**
-- `core/holon/registry.py` - Registry implementation
-- `core/holon/library/langchain_registry.py` - LangChain resolvers
-- `core/tests/test_registry.py` - Registry tests (20+ tests)
+**Files created/modified:**
+- `core/holon/registry.py` - Registry implementation (280+ lines)
+- `core/holon/library/langchain_registry.py` - LangChain resolvers (210+ lines)
+- `core/holon/cli.py` - CLI interface (178 lines)
+- `core/holon/__version__.py` - Version info
+- `core/holon/rpc/server.py` - Added execute_workflow RPC method
+- `core/tests/test_registry.py` - Registry tests (16 tests)
+- `core/tests/test_runner.py` - Added spec resolution tests (6 tests)
 - `core/examples/spec_nodes.holon.py` - Example workflow
 - `core/examples/run_spec_demo.py` - Interactive demo
-- `core/holon/REGISTRY_README.md` - Complete documentation
+- `core/examples/multi_agent.holon.py` - Advanced multi-agent example
+- `core/holon/REGISTRY_README.md` - Complete documentation (432 lines)
+- `extension/src/webview.ts` - Added onUiWorkflowRun handler
+- `extension/src/rpcClient.ts` - Added executeWorkflow method
+- `extension/tsconfig.json` - Fixed to allow ../ui imports
+- `ui/src/App.tsx` - Added execution state and handlers
+- `ui/src/ConfigPanel.tsx` - Added Run button and Output tab
+- `ui/src/protocol.ts` - Added execution message schemas
+- `ui/src/main.tsx` - Fixed browserBridge conditional loading
+- `ui/vite.config.ts` - Fixed resolve configuration for build
 
-### 6) Phase 6: Port-based execution (NEXT)
+**Testing:**
+```bash
+# CLI execution
+python -m holon.cli run examples/demo.holon.py
+# Output: ✓ Success! Output: result=2
+
+# List workflows
+python -m holon.cli list examples/demo.holon.py
+# Shows: Workflows, Nodes, Spec Nodes with types
+```
+
+### 6) Phase 6: Port-based execution (NEXT HIGH PRIORITY) 🎯
 
 **To implement:**
 - Port-based data flow: respect `@link` declarations for explicit connections
 - Runtime port validation: ensure type compatibility
 - Multi-port connections: support nodes with multiple inputs/outputs
 - Port metadata: labels, kinds (data/llm/memory/tool), multiplicity
+- Execution graph builder: construct execution order from port links
 
 **Port resolution strategy:**
 - Parse `@link` declarations from workflows
@@ -163,33 +216,53 @@ class Agent:
 class LLM:
     model_name = "gpt-4o"
 
-@link
-class _:
-    source = (LLM, "llm")
-    target = (Agent, "llm")
-
 @workflow
 async def main():
+    # Link LLM output to Agent llm input port
+    link(source=(LLM, "llm"), target=(Agent, "llm"))
+    
     # Port connections are resolved automatically
     result = Agent(input="Hello")
     return result
 ```
 
-### 7) Phase 6: Advanced execution features (FUTURE)
+### 7) Enhanced UI execution features 🔜
+
+**To implement:**
+- **Per-node outputs**: Display intermediate results for each node in workflow
+- **Real-time updates**: Stream execution progress and outputs as they happen
+- **Execution history**: Store and display previous execution results
+- **Input parameters**: Allow users to specify workflow inputs from UI
+- **Execution state visualization**: Highlight currently executing nodes
+- **Error visualization**: Show errors on the node that failed
+- **Execution timeline**: Show execution order and timing information
+
+**UI improvements:**
+- Progress bar during execution
+- Cancel/stop execution button
+- Per-node output inspection (click node to see its output)
+- Execution mode selector (sequential, parallel when available)
+- Input form for workflow parameters
+
+### 8) Phase 6: Advanced execution features (FUTURE)
 
 **To implement:**
 - Context passing: make `Context` available to nodes at runtime
 - Parallel execution: run independent nodes concurrently
 - Execution tracing: collect timing, intermediate values, errors
 - Streaming support: yield intermediate results for long-running workflows
+- Execution visualization: real-time graph updates showing active nodes
+- Checkpointing: save and resume execution state
+- Debugging: step-through execution, breakpoints
 
-**Spec resolution strategy:**
-- Create a registry of spec types → factory functions
-- Example: `"llm.model"` + `props={model_name="gpt-4"}` → instantiate LLM client
-- Use library integrations (langchain, etc.) for common types
-- Allow user-defined resolvers for custom types
+**Additional features:**
+- Workflow composition: call workflows from other workflows
+- Conditional execution: if/else logic in workflows
+- Loop support: iterate over collections
+- Error recovery: retry logic, fallbacks
+- Resource management: connection pooling, cleanup
 
-## Implementation notes (2026-01-29)
+## Implementation notes (2026-01-29 - Updated)
 
 **Steps 1-2 completion:**
 - The AI patch reliability improvements are complete with both server-side and client-side validation.
@@ -198,22 +271,54 @@ async def main():
   - Batch refresh command with VS Code progress notifications
   - Proper error handling and user feedback
 
-**Step 4 (execution) - initial implementation:**
-- Simple, solid foundation for workflow execution
-- Currently executes Python @node functions in sequence
-- Architecture designed for future extensions (spec resolution, parallel execution)
-- Fully tested with 14 unit tests covering success and error scenarios
-- Example workflow demonstrates basic usage: add → multiply → format
+**Steps 4-5 completion (Workflow execution - COMPLETE):**
+- ✅ Solid foundation for workflow execution established
+- ✅ Spec node resolution fully implemented with registry system
+- ✅ 51 tests passing (29 runner + 16 registry + 6 spec resolution)
+- ✅ CLI commands functional (`holon run`, `holon list`)
+- ✅ LangChain integration working (agent, memory, tools)
+- ✅ UI execution features complete:
+  - "Run Workflow" button integrated
+  - "Output" tab displays execution results
+  - RPC communication extension ↔ Python working
+  - Error handling and display working
+- ✅ Build system fixed (Vite/Rollup configuration resolved)
 
-**Demo output:**
-```
-▶ Executing workflow: simple_exec.holon.py
-  Entrypoint: main()
-────────────────────────────────────────────────────────────
+**Example workflows:**
+- `core/examples/demo.holon.py` - Basic workflow with spec nodes
+- `core/examples/spec_nodes.holon.py` - Demonstrates spec node types
+- `core/examples/multi_agent.holon.py` - Complex multi-agent workflow with LangChain
+- `core/examples/run_spec_demo.py` - Interactive demo script
+- `core/examples/run_multi_agent.py` - Multi-agent runner
+
+**CLI Demo output:**
+```bash
+$ python -m holon.cli run examples/demo.holon.py
+
+▶ Executing: examples/demo.holon.py
+  Workflow: main
+──────────────────────────────────────────────────────────────────────
 ✓ Success!
-  Output: Final result: 16
-────────────────────────────────────────────────────────────
+Output: result=2
+──────────────────────────────────────────────────────────────────────
 ```
+
+**UI Demo:**
+1. Open `.holon.py` file in VS Code
+2. Click Holon icon to open graph view
+3. Select workflow node
+4. Click "Run Workflow" button
+5. Switch to "Output" tab to see results
+
+**Technical achievements:**
+- Clean architecture: execution separate from parsing/editing
+- Type-safe: proper TypeScript/Python typing throughout
+- Extensible: registry system allows custom spec type resolvers
+- Tested: comprehensive test coverage with pytest
+- Documented: 432-line REGISTRY_README.md with examples
 
 **Known technical debt:**
-- TypeScript compilation shows errors related to cross-folder imports (`ui/src` from `extension/src`). This is a configuration issue that should be addressed when formalizing shared contracts (Step 3).
+- TypeScript cross-folder imports use inline copies in browserBridge (workaround for Rollup limitations)
+- BrowserBridge only loads in DEV mode (conditional import in main.tsx)
+- Port-based execution not yet implemented (Step 6)
+- Per-node output display not yet implemented (Step 7)

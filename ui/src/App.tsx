@@ -212,6 +212,7 @@ export default function App(): JSX.Element {
   const [nodes, setNodes, onNodesChange] = useNodesState<UiNodeData>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([] as Edge[]);
   const nodeTypes = useMemo(() => ({ holon: HolonNode }), []);
+  const [coreNodes, setCoreNodes] = useState<CoreNode[]>([]);
 
   const [aiByNodeId, setAiByNodeId] = useState<Record<string, AiStatus | undefined>>({});
   const [aiModalNodeId, setAiModalNodeId] = useState<string | null>(null);
@@ -224,6 +225,8 @@ export default function App(): JSX.Element {
     isOpen: false,
   });
   const [allCredentials, setAllCredentials] = useState<Record<string, Record<string, string>>>({});
+  
+  const [executionOutput, setExecutionOutput] = useState<Record<string, any> | null>(null);
 
   const onSaveCredentials = useCallback((provider: string, creds: Record<string, string>) => {
     setAllCredentials((prev) => ({ ...prev, [provider]: creds }));
@@ -282,6 +285,14 @@ export default function App(): JSX.Element {
   const onPatchNode = useCallback((nodeId: string, props: Record<string, any>) => {
     postToExtension({ type: "ui.node.patchRequest", nodeId, props });
   }, []);
+  
+  const onRunWorkflow = useCallback(() => {
+    // Find the workflow node name from selected node
+    const workflowNode = coreNodes.find(n => n.id === selectedNodeId && n.kind === "workflow");
+    if (!workflowNode) return;
+    
+    postToExtension({ type: "ui.workflow.run", workflowName: workflowNode.name });
+  }, [selectedNodeId, coreNodes]);
 
   useEffect(() => {
     postToExtension({ type: "ui.ready" });
@@ -289,6 +300,11 @@ export default function App(): JSX.Element {
 
   useEffect(() => {
     const handler = (event: MessageEvent) => {
+      // Ignore messages that don't have a type property or are from external sources
+      if (!event.data || typeof event.data !== 'object' || !event.data.type || typeof event.data.type !== 'string') {
+        return;
+      }
+
       const parsed = ToUiMessageSchema.safeParse(event.data);
       if (!parsed.success) {
         console.error("Zod validation failed for message:", event.data, parsed.error);
@@ -297,6 +313,7 @@ export default function App(): JSX.Element {
 
       const msg = parsed.data;
       if (msg.type === "graph.init" || msg.type === "graph.update") {
+        setCoreNodes(msg.nodes);
         setNodes(toReactFlowNodes(msg.nodes, { onAi, onDescribe, aiByNodeId, selectedNodeId }));
         setEdges(toReactFlowEdges(msg.edges));
       }
@@ -317,6 +334,14 @@ export default function App(): JSX.Element {
 
       if (msg.type === "credentials.update") {
         setAllCredentials(msg.credentials);
+      }
+      
+      if (msg.type === "workflow.executionResult") {
+        setExecutionOutput(msg.output);
+      }
+      
+      if (msg.type === "execution.output") {
+        setExecutionOutput(msg.output);
       }
     };
 
@@ -574,6 +599,8 @@ export default function App(): JSX.Element {
           onDelete={onDeleteNode}
           onPatch={onPatchNode}
           onOpenCredentials={(provider) => setCredentialModal({ provider, isOpen: true })}
+          onRunWorkflow={onRunWorkflow}
+          executionOutput={executionOutput}
         />
       </div>
 

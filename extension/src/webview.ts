@@ -49,6 +49,10 @@ type WebviewToExtensionMessage =
       label?: string | null;
     }
   | {
+      type: "ui.workflow.run";
+      workflowName: string;
+    }
+  | {
       type: "rpc.stop";
     };
 
@@ -92,6 +96,10 @@ type ExtensionToWebviewMessage =
       nodeId: string;
       status: "idle" | "working" | "error" | "done";
       message?: string;
+    }
+  | {
+      type: "execution.output";
+      output: Record<string, unknown>;
     };
 
 export class HolonPanel {
@@ -192,6 +200,9 @@ export class HolonPanel {
             return;
           case "ui.node.patchRequest":
             await this.onUiPatchRequest(message.nodeId, message.props ?? null, message.label ?? null);
+            return;
+          case "ui.workflow.run":
+            await this.onUiWorkflowRun(message.workflowName);
             return;
           case "rpc.stop":
             await this.onStop();
@@ -689,6 +700,7 @@ export class HolonPanel {
       nodeId,
       label: label,
       props: props,
+      setNodeType: false,
       setLabel: label !== null,
       setProps: props !== null,
     });
@@ -699,6 +711,30 @@ export class HolonPanel {
     });
     if (!ok) {
       throw new Error("Editor rejected the edit");
+    }
+  }
+
+  private async onUiWorkflowRun(workflowName: string): Promise<void> {
+    this.output.appendLine(`ui.workflow.run: ${workflowName}`);
+
+    const targetUri = this.lastHolonDocumentUri ?? vscode.window.activeTextEditor?.document?.uri;
+    if (!targetUri) {
+      this.postMessage({ type: "execution.output", output: { error: "No active holon file" } });
+      return;
+    }
+
+    const rpc = await this.ensureRpc();
+    try {
+      const result = await rpc.executeWorkflow({
+        filePath: targetUri.fsPath,
+        workflowName: workflowName,
+      });
+      this.postMessage({ type: "execution.output", output: result });
+    } catch (error) {
+      this.postMessage({
+        type: "execution.output",
+        output: { error: error instanceof Error ? error.message : String(error) },
+      });
     }
   }
 
@@ -879,8 +915,15 @@ export class HolonPanel {
 
     return {
       nodes: nodes.map((n) => ({
-        ...n,
+        id: n.id,
+        name: n.name,
+        kind: n.kind,
         label: n.label || `${n.kind}: ${n.name}`,
+        position: n.position ?? null,
+        ...(n.nodeType ? { nodeType: n.nodeType } : {}),
+        ...(n.summary ? { summary: n.summary } : {}),
+        ...(n.badges ? { badges: n.badges } : {}),
+        ...(n.ports ? { ports: n.ports } : {}),
       })),
       edges,
     };
@@ -1289,14 +1332,6 @@ type NodeInfo = {
 
 type PortDirection = "input" | "output";
 type PortKind = "data" | "llm" | "memory" | "tool" | "parser" | "control";
-
-type PortSpec = {
-  id: string;
-  direction: PortDirection;
-  kind?: PortKind | undefined;
-  label?: string | undefined;
-  multi?: boolean | undefined;
-};
 
 function pickWorkflowName(graph: CoreGraph | undefined): string | undefined {
   if (!graph) {

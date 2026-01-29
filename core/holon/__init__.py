@@ -11,7 +11,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-__all__ = ["Context", "link", "node", "spec", "workflow"]
+from holon.__version__ import __version__
+
+__all__ = ["__version__", "Context", "link", "node", "spec", "workflow"]
 
 
 if TYPE_CHECKING:

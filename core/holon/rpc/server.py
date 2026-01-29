@@ -102,6 +102,11 @@ class _DeleteNodeParams(BaseModel):
     node_id: str
 
 
+class _ExecuteWorkflowParams(BaseModel):
+    file_path: str
+    workflow_name: str
+
+
 def main() -> None:
     """Run the RPC loop reading stdin and writing stdout."""
 
@@ -237,6 +242,19 @@ def handle_request(request: Any) -> dict[str, Any]:
                 node_id=params.node_id,
             )
             return {"id": request_id, "result": {"source": updated}}
+        except Exception as exc:  # noqa: BLE001 - return structured RPC errors
+            return {"id": request_id, "error": {"message": _format_error(exc)}}
+
+    if method == "execute_workflow":
+        try:
+            params = _parse_params(request.get("params"), _ExecuteWorkflowParams)
+            from holon.runner import WorkflowRunner
+            
+            result = WorkflowRunner.run_workflow_file(
+                params.file_path,
+                workflow_name=params.workflow_name,
+            )
+            return {"id": request_id, "result": {"output": result}}
         except Exception as exc:  # noqa: BLE001 - return structured RPC errors
             return {"id": request_id, "error": {"message": _format_error(exc)}}
 
