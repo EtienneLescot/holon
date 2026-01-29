@@ -52,6 +52,8 @@ UI (React):
 - Add stricter JSON contracts for spec patches (e.g. enforce `type` string and validate `props` shape).
 - Better error messages when Copilot returns malformed JSON.
 
+Note: 2026-01-29 — Server-side Pydantic validation added for `patch_spec_node`: when the RPC caller sets `set_node_type` the `node_type` must be a non-empty string; when `set_props` is true, `props` must be an object with string keys. This provides earlier, clearer errors for malformed AI/extension requests.
+
 2) Make “Describe” more useful
 - Include a stable badge style guide (still freeform, but encourage consistency).
 - Optionally add a “refresh all descriptions” command.

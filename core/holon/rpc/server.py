@@ -16,7 +16,7 @@ import sys
 from dataclasses import dataclass
 from typing import Any
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, field_validator
 
 from holon.services.graph_parser import parse_graph
 from holon.services.patcher import add_link as add_link_source
@@ -74,6 +74,27 @@ class _PatchSpecNodeParams(BaseModel):
     set_node_type: bool = False
     set_label: bool = False
     set_props: bool = False
+
+    @field_validator("node_type")
+    def _validate_node_type(cls, v, info):
+        data = info.data or {}
+        if data.get("set_node_type"):
+            if not isinstance(v, str) or not v.strip():
+                raise ValueError("node_type must be a non-empty string when set_node_type is true")
+        return v
+
+    @field_validator("props")
+    def _validate_props(cls, v, info):
+        data = info.data or {}
+        if data.get("set_props"):
+            if v is None:
+                return v
+            if not isinstance(v, dict):
+                raise ValueError("props must be an object/dict when set_props is true")
+            for k in v.keys():
+                if not isinstance(k, str):
+                    raise ValueError("props keys must be strings")
+        return v
 
 
 class _DeleteNodeParams(BaseModel):

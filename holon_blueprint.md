@@ -72,10 +72,45 @@ Invariants :
 
 ### Primitives
 
-- `@node` : marque une fonction comme node patchable.
+- `@node` : décorateur universel pour définir une node. Détecte automatiquement le contexte :
+  - Sur une **fonction** → node custom (code inline).
+  - Sur une **classe avec `type=`** → node library (préfabriquée, basée sur attributs de classe).
 - `@workflow` : marque une fonction dont le corps est analysé pour dériver des liens implicites (workflow→node).
-- `spec(node_id, *, type: str, label?: str, props?: dict)` : déclare une node non-fonction (config pure).
 - `link(source_node_id, source_port, target_node_id, target_port)` : déclare un lien explicite de ports à l'intérieur d'un `@workflow`.
+- `spec(node_id, *, type: str, label?: str, props?: dict)` : forme bas-niveau pour déclarer une node préfabriquée (config pure). **Déprécié** au profit de `@node` sur classe.
+
+### Le décorateur `@node` unifié (code-first, AI-friendly)
+
+**Philosophie**: un seul décorateur pour toutes les nodes, la distinction se fait naturellement par le contexte (fonction vs classe).
+
+**Syntaxe - Node custom (inline code)**:
+```python
+@node
+def analyze(x: int) -> int:
+    """Custom processing logic."""
+    return x + 1
+```
+
+**Syntaxe - Node library (préfabriquée)**:
+```python
+@node(type="llm.model", id="spec:llm:my_gpt4")
+class MyGPT4:
+    """GPT-4o configuration."""
+    model_name = "gpt-4o"
+    temperature = 0.7
+    provider = "openai"
+```
+
+**Règles**:
+- **Fonction** : `@node` (sans paramètres) → node custom. Le nom de la fonction devient le node ID (`node:<function_name>`).
+- **Classe** : `@node(type="...")` (avec `type` obligatoire) → node library. Les attributs de classe (non-privés, non-callables) sont collectés comme `props` au moment du parsing.
+- Paramètres optionnels pour nodes library : `id` (par défaut `spec:<type>:<class_name_snake_case>`), `label` (par défaut dérivé du nom de classe).
+
+**Pourquoi**:
+- **Symétrie conceptuelle** : tout est `@node`, pas de confusion entre `@node` et `@spec_node`.
+- **Code-first** : les agents IA reconnaissent immédiatement la structure (fonction = logique inline, classe = config).
+- **Refactoring-friendly** : renommer/modifier des attributs est plus simple qu'éditer du JSON ou des kwargs.
+- **Patchable via LibCST** : le parser extrait les attributs de classe et les convertit en `props` dict au moment de la génération du graphe.
 
 ### Liens
 

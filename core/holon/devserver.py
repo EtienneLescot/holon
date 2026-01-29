@@ -43,9 +43,6 @@ from holon.library.credentials import credentials_manager
 
 
 class _State:
-
-
-class _State:
     def __init__(self, *, file_path: Path | None) -> None:
         self.file_path = file_path
         self.source: str = ""
