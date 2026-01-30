@@ -24,9 +24,12 @@ spec(
 
 @workflow
 async def main() -> str:
-    """Simple workflow: send a prompt to an LLM agent and return the response."""
-    link("spec:llm.openai:simple", "output", "spec:agent.simple:chat", "input")
+    """Simple workflow: connect LLM to agent and execute."""
+    # Connect LLM to agent's llm port
+    link("spec:llm.openai:simple", "output", "spec:agent.simple:chat", "llm")
     link("workflow:main", "start", "spec:agent.simple:chat", "input")
-    link("spec:llm.openai:simple", "output", "spec:agent.simple:chat", "input")
-    # For now, just return a mock response since we don't have the full execution engine
-    return "Workflow executed successfully (mock response)"
+    
+    # The agent will use user_prompt from its props as input
+    # In the future, we could connect an input node here
+    
+    return "Workflow will execute via graph engine"

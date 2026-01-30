@@ -146,6 +146,21 @@ body {
   box-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
 }
 
+.holonNode-error {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.5), rgba(220, 38, 38, 0.5));
+  box-shadow: 0 0 25px rgba(239, 68, 68, 0.4);
+  animation: pulseError 2s ease-in-out infinite;
+}
+
+@keyframes pulseError {
+  0%, 100% {
+    box-shadow: 0 0 25px rgba(239, 68, 68, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 35px rgba(239, 68, 68, 0.6);
+  }
+}
+
 .holonNodeTitle {
   font-size: 16px;
   font-weight: 900;

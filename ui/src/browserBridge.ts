@@ -570,16 +570,54 @@ class BrowserDevBridge {
     if (msg.type === "ui.workflow.run") {
       const workflowName = msg.workflowName;
       try {
-        const r = await fetchJson<{ output: unknown }>("/api/execute_workflow", {
+        const r = await fetchJson<{
+          success: boolean;
+          output?: unknown;
+          error?: string;
+          error_type?: string;
+          error_node_id?: string;
+          execution_trace?: Array<{ node_id: string; status: string; error?: string }>;
+        }>("/api/execute_workflow", {
           method: "POST",
           body: JSON.stringify({ workflow_name: workflowName }),
         });
-        let out: unknown = (r as any).output ?? r;
-        if (typeof out !== "object" || out === null) {
-          out = { result: out };
-        }
+        
+        // Build output object with execution results
+        const outputData: Record<string, unknown> = {};
         const key = `workflow:${workflowName}`;
-        postToUi({ type: "execution.output", output: { [key]: out as Record<string, unknown> } });
+        
+        if (r.success) {
+          outputData[key] = { result: r.output, status: "success" };
+        } else {
+          outputData[key] = {
+            error: r.error,
+            error_type: r.error_type,
+            status: "error",
+          };
+          
+          // Add error to the failed node
+          if (r.error_node_id) {
+            outputData[r.error_node_id] = {
+              error: r.error,
+              error_type: r.error_type,
+              status: "error",
+            };
+          }
+        }
+        
+        // Add trace info for all executed nodes
+        if (r.execution_trace) {
+          for (const trace of r.execution_trace) {
+            if (!outputData[trace.node_id]) {
+              outputData[trace.node_id] = {
+                status: trace.status,
+                error: trace.error,
+              };
+            }
+          }
+        }
+        
+        postToUi({ type: "execution.output", output: outputData });
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         postToUi({ type: "execution.output", output: { error: message } });

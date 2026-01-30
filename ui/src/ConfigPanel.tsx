@@ -215,14 +215,64 @@ export function ConfigPanel(props: Props): JSX.Element {
                     <div className="rounded-[40px] bg-black/50 border border-white/5 h-full p-10 shadow-inner">
                       {props.executionOutput && props.executionOutput[props.node.id] ? (
                         <div className="space-y-6">
+                          {/* Status Badge */}
                           <div className="flex items-center gap-4 pb-4 border-b border-white/5">
-                            <span className="px-3 py-1.5 rounded-lg bg-green-500/20 text-green-400 text-[9px] font-black uppercase tracking-[0.2em]">
-                              ✓ Executed
-                            </span>
+                            {props.executionOutput[props.node.id].status === "error" ? (
+                              <span className="px-3 py-1.5 rounded-lg bg-red-500/20 text-red-400 text-[9px] font-black uppercase tracking-[0.2em] flex items-center gap-2">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                                  <circle cx="12" cy="12" r="10"/>
+                                  <line x1="12" y1="8" x2="12" y2="12" stroke="white" strokeWidth="2" strokeLinecap="round"/>
+                                  <line x1="12" y1="16" x2="12.01" y2="16" stroke="white" strokeWidth="2" strokeLinecap="round"/>
+                                </svg>
+                                Error
+                              </span>
+                            ) : (
+                              <span className="px-3 py-1.5 rounded-lg bg-green-500/20 text-green-400 text-[9px] font-black uppercase tracking-[0.2em]">
+                                ✓ Executed
+                              </span>
+                            )}
                           </div>
-                          <pre className="text-[12px] leading-6 text-blue-100/80 font-mono h-full overflow-auto custom-scrollbar">
-                            {prettyJson(props.executionOutput[props.node.id])}
-                          </pre>
+                          
+                          {/* Error Display */}
+                          {props.executionOutput[props.node.id].status === "error" && props.executionOutput[props.node.id].error ? (
+                            <div className="space-y-6">
+                              <div className="rounded-3xl bg-red-500/5 border-2 border-red-500/30 p-8 space-y-6">
+                                <div className="flex items-start gap-4">
+                                  <div className="w-12 h-12 rounded-2xl bg-red-500/20 flex items-center justify-center flex-shrink-0">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-red-400">
+                                      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                                      <line x1="12" y1="9" x2="12" y2="13"/>
+                                      <line x1="12" y1="17" x2="12.01" y2="17"/>
+                                    </svg>
+                                  </div>
+                                  <div className="flex-1 space-y-3">
+                                    <div className="text-[10px] font-black uppercase tracking-[0.3em] text-red-400">
+                                      {props.executionOutput[props.node.id].error_type || "Execution Error"}
+                                    </div>
+                                    <div className="text-[13px] leading-relaxed text-red-100/90 font-medium">
+                                      {String(props.executionOutput[props.node.id].error)}
+                                    </div>
+                                  </div>
+                                </div>
+                                
+                                {/* Suggestion based on error type */}
+                                {props.executionOutput[props.node.id].error_type === "AuthenticationError" && (
+                                  <div className="pt-6 border-t border-red-500/20 space-y-4">
+                                    <div className="text-[10px] font-black uppercase tracking-[0.3em] text-red-300/60">
+                                      Suggested Action
+                                    </div>
+                                    <div className="text-[12px] leading-relaxed text-red-100/70">
+                                      Configure your OpenAI API key in the credentials settings. Click the credentials button in the node configuration.
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          ) : (
+                            <pre className="text-[12px] leading-6 text-blue-100/80 font-mono h-full overflow-auto custom-scrollbar">
+                              {prettyJson(props.executionOutput[props.node.id])}
+                            </pre>
+                          )}
                         </div>
                       ) : (
                         <div className="flex flex-col items-center justify-center h-full text-center space-y-6">

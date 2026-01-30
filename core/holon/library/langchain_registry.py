@@ -2,6 +2,7 @@
 
 This module provides resolvers for LangChain-specific spec types:
 - langchain.agent: Agent with tools, memory, and LLM
+- llm.openai: OpenAI LLM (ChatOpenAI)
 - langchain.tool: Tool wrapper
 - langchain.memory: Memory/conversation buffer
 
@@ -10,9 +11,58 @@ These resolvers integrate with the global spec type registry.
 
 from __future__ import annotations
 
+import sys
 from typing import Any
 
 from holon.registry import register_spec_type
+
+
+@register_spec_type("llm.openai")
+def resolve_llm_openai(props: dict[str, Any]) -> Any:
+    """Resolve an OpenAI LLM spec node.
+    
+    Props:
+        model_name: Model identifier (default: "gpt-4o")
+        temperature: Sampling temperature (default: 0.7)
+        provider: Provider name for credentials lookup (default: "openai")
+    
+    Returns:
+        ChatOpenAI instance configured with credentials
+    """
+    from holon.library.credentials import credentials_manager
+    
+    model_name = props.get("model_name", "gpt-4o")
+    temperature = props.get("temperature", 0.7)
+    provider = props.get("provider", "openai")
+    
+    sys.stderr.write(f"[RESOLVER] Creating OpenAI LLM: model={model_name}, temp={temperature}\n")
+    sys.stderr.flush()
+    
+    try:
+        from langchain_openai import ChatOpenAI
+        
+        # Get API key from credentials manager
+        api_key = credentials_manager.get_api_key(provider)
+        if not api_key:
+            sys.stderr.write(f"[RESOLVER] WARNING: No API key for provider '{provider}'\n")
+            sys.stderr.flush()
+        
+        llm = ChatOpenAI(
+            model=model_name,
+            temperature=temperature,
+            openai_api_key=api_key,
+        )
+        
+        sys.stderr.write(f"[RESOLVER] OpenAI LLM created successfully\n")
+        sys.stderr.flush()
+        
+        return llm
+    except ImportError as e:
+        sys.stderr.write(f"[RESOLVER] ERROR: langchain-openai not installed: {e}\n")
+        sys.stderr.flush()
+        raise ImportError(
+            "langchain-openai not available. Install with: pip install langchain-openai"
+        ) from e
 
 
 @register_spec_type("langchain.agent")
@@ -46,7 +96,7 @@ def resolve_langchain_agent(props: dict[str, Any]) -> Any:
     )
     
     # Return a callable that wraps the agent logic
-    def agent_runner(
+    async def agent_runner(
         input: str,
         llm: Any = None,
         tools: list[Any] | None = None,
@@ -55,7 +105,7 @@ def resolve_langchain_agent(props: dict[str, Any]) -> Any:
         """Execute the agent with given inputs."""
         from holon.library.langchain import langchain_agent
         
-        return langchain_agent(
+        return await langchain_agent(
             input=input,
             llm=llm,
             system_prompt=config.system_prompt,

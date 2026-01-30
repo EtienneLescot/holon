@@ -6,7 +6,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool
 
 @node
-def langchain_agent(
+async def langchain_agent(
     input: str = "",
     llm: BaseChatModel = None,
     system_prompt: str = "You are a helpful assistant.",
@@ -33,48 +33,21 @@ def langchain_agent(
     if not llm:
         raise ValueError("LLM is required")
 
+    # For now, use a simple chain without tools (modern LangChain API)
+    # This avoids deprecated initialize_agent and create_openai_functions_agent
     prompt = ChatPromptTemplate.from_messages([
         ("system", system_prompt),
-        MessagesPlaceholder(variable_name="chat_history") if memory else ("placeholder", "{chat_history}"),
         ("human", "{input}"),
-        MessagesPlaceholder(variable_name="agent_scratchpad"),
     ])
     
-    # Create an agent/executor compatible with multiple langchain versions.
-    try:
-        from langchain.agents import create_openai_functions_agent
-
-        agent_or_executor = create_openai_functions_agent(llm, tools, prompt)
-    except Exception:
-        from langchain.agents import initialize_agent, AgentType
-
-        agent_or_executor = initialize_agent(
-            tools,
-            llm,
-            agent=AgentType.OPENAI_FUNCTIONS,
-            verbose=True,
-            agent_kwargs={"prompt": prompt},
-        )
-
-    # If initialize_agent/create_openai_functions_agent returned an executor-like object,
-    # prefer its `invoke` or `run` methods. Otherwise, try to construct an executor.
-    if hasattr(agent_or_executor, "invoke"):
-        response = agent_or_executor.invoke({"input": final_input})
-        return response["output"]
-    if hasattr(agent_or_executor, "run"):
-        return agent_or_executor.run(final_input)
-
-    # As a last resort, try to import AgentExecutor dynamically and wrap the agent.
-    try:
-        from langchain.agents import AgentExecutor as _AgentExecutor
-
-        agent_executor = _AgentExecutor(
-            agent=agent_or_executor,
-            tools=tools,
-            verbose=True,
-            memory=memory,
-        )
-        response = agent_executor.invoke({"input": final_input})
-        return response["output"]
-    except Exception as exc:
-        raise RuntimeError("Unable to construct/run LangChain agent") from exc
+    # Create a simple chain: prompt | llm
+    chain = prompt | llm
+    
+    # Invoke the chain (async to support async API key retrieval)
+    response = await chain.ainvoke({"input": final_input})
+    
+    # Extract text content
+    if hasattr(response, "content"):
+        return response.content
+    else:
+        return str(response)

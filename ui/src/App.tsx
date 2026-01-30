@@ -37,6 +37,7 @@ type UiNodeData = {
   badges?: string[];
   aiStatus?: AiStatus;
   isSelected?: boolean;
+  hasError?: boolean;
   onAi: (nodeId: string) => void;
   onDescribe: (nodeId: string) => void;
 };
@@ -52,12 +53,14 @@ function toReactFlowNodes(
     onDescribe: (nodeId: string) => void;
     aiByNodeId: Record<string, AiStatus | undefined>;
     selectedNodeId: string | null;
+    executionOutput: Record<string, any> | null;
   }
 ):
   Array<Node<UiNodeData>> {
   return input.map((n, idx) => {
     const position = n.position ?? { x: 40 + idx * 220, y: n.kind === "workflow" ? 60 : 180 };
     const aiStatus = opts.aiByNodeId[n.id];
+    const hasError = opts.executionOutput?.[n.id]?.status === "error";
     const ports: PortSpec[] =
       n.ports && n.ports.length > 0
         ? n.ports.map((p) => {
@@ -94,6 +97,7 @@ function toReactFlowNodes(
         ...(typeof summary === "string" ? { summary } : {}),
         ...(Array.isArray(badges) ? { badges } : {}),
         ...(aiStatus ? { aiStatus } : {}),
+        ...(hasError ? { hasError } : {}),
         onAi: opts.onAi,
         onDescribe: opts.onDescribe,
       },
@@ -129,9 +133,15 @@ function HolonNode(props: NodeProps<UiNodeData>): JSX.Element {
 
   const baseTop = 40;
   const step = 20;
+  
+  const nodeClasses = [
+    'holonNode',
+    selected ? 'holonNode-selected' : '',
+    data.hasError ? 'holonNode-error' : ''
+  ].filter(Boolean).join(' ');
 
   return (
-    <div className={`holonNode${selected ? " holonNode-selected" : ""}`}>
+    <div className={nodeClasses}>
       <div className="holonNodeInner">
         {inputs.map((p, idx) => (
           <Handle
@@ -318,7 +328,7 @@ export default function App(): JSX.Element {
       const msg = parsed.data;
       if (msg.type === "graph.init" || msg.type === "graph.update") {
         setCoreNodes(msg.nodes);
-        setNodes(toReactFlowNodes(msg.nodes, { onAi, onDescribe, aiByNodeId, selectedNodeId }));
+        setNodes(toReactFlowNodes(msg.nodes, { onAi, onDescribe, aiByNodeId, selectedNodeId, executionOutput }));
         setEdges(toReactFlowEdges(msg.edges));
       }
 
@@ -353,7 +363,14 @@ export default function App(): JSX.Element {
 
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
-  }, [aiByNodeId, onAi, onDescribe, selectedNodeId, setEdges, setNodes]);
+  }, [aiByNodeId, onAi, onDescribe, selectedNodeId, setEdges, setNodes, executionOutput]);
+
+  // Update nodes when executionOutput changes to show error states
+  useEffect(() => {
+    if (coreNodes.length > 0) {
+      setNodes(toReactFlowNodes(coreNodes, { onAi, onDescribe, aiByNodeId, selectedNodeId, executionOutput }));
+    }
+  }, [executionOutput, coreNodes, onAi, onDescribe, aiByNodeId, selectedNodeId, setNodes]);
 
   const onSelectionChange = useCallback((params: OnSelectionChangeParams) => {
     const first = params.nodes && params.nodes.length > 0 ? params.nodes[0] : undefined;

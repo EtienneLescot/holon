@@ -338,10 +338,22 @@ def _make_handler(state: _State) -> type[BaseHTTPRequestHandler]:
                     result = run_workflow_sync(str(state.file_path), workflow_name=workflow_name)
                     sys.stderr.write(f"[API] Workflow '{workflow_name}' completed: success={result.success}\n")
                     sys.stderr.flush()
-                    if result.success:
-                        self._send_json(200, {"output": result.output})
-                    else:
-                        self._send_json(200, {"output": {"error": str(result.error)}})
+                    
+                    # Build response with execution details
+                    response = {
+                        "success": result.success,
+                        "output": result.output if result.success else None,
+                    }
+                    
+                    if not result.success:
+                        response["error"] = str(result.error)
+                        response["error_type"] = type(result.error).__name__
+                        response["error_node_id"] = result.error_node_id
+                    
+                    if result.execution_trace:
+                        response["execution_trace"] = result.execution_trace
+                    
+                    self._send_json(200, response)
                     return
 
                 if self.path == "/api/delete_node":

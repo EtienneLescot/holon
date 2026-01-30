@@ -3,19 +3,18 @@
 This module provides an execution engine for Holon workflows with support for:
 - Python @node functions (sync and async)
 - Spec node resolution (instantiate objects from type + props)
+- Port-based execution with graph engine
 - Clean error handling and reporting
 
 Design principles:
 - Start simple: execute Python @node functions in sequence
-- Extensible: architecture supports spec node resolution
+- Extensible: architecture supports spec node resolution and port-based flow
 - Clean separation: execution is opt-in and separate from editing/parsing
 - Type-safe: proper typing and error handling
 
-Future extensions:
-- Port-based data flow (explicit connections between nodes)
-- Parallel execution for independent nodes
-- Streaming/async iteration
-- Execution tracing and debugging
+Execution modes:
+1. Legacy mode: Simple workflow function call (no links)
+2. Engine mode: Graph-based execution with port data flow (when links present)
 """
 
 from __future__ import annotations
@@ -39,10 +38,14 @@ class ExecutionResult:
     Attributes:
         output: The value returned by the workflow entrypoint
         error: Exception if execution failed, None otherwise
+        error_node_id: ID of the node that failed (if any)
+        execution_trace: List of executed nodes with their status
         success: True if execution completed without error
     """
     output: Any = None
     error: Exception | None = None
+    error_node_id: str | None = None
+    execution_trace: list[dict[str, Any]] | None = None
     
     @property
     def success(self) -> bool:
@@ -168,7 +171,20 @@ class WorkflowRunner:
             # Execute the workflow
             sys.stderr.write(f"[RUNNER] Executing workflow '{workflow_name}'\n")
             sys.stderr.flush()
-            return await self.run_workflow(workflow_fn, **kwargs)
+            
+            # Check if we should use graph-based execution
+            # Parse the source to see if there are link() calls
+            source = file_path.read_text(encoding="utf8")
+            use_graph_engine = "link(" in source
+            
+            if use_graph_engine:
+                sys.stderr.write(f"[RUNNER] Using graph-based execution engine\n")
+                sys.stderr.flush()
+                return await self._run_workflow_with_engine(file_path, workflow_name, source)
+            else:
+                sys.stderr.write(f"[RUNNER] Using legacy direct execution\n")
+                sys.stderr.flush()
+                return await self.run_workflow(workflow_fn, **kwargs)
         
         except Exception as e:
             sys.stderr.write(f"[RUNNER] Exception during execution: {type(e).__name__}: {e}\n")
@@ -330,6 +346,67 @@ class WorkflowRunner:
                 continue
         
         return props
+    
+    async def _run_workflow_with_engine(
+        self, file_path: Path, workflow_name: str, source: str
+    ) -> ExecutionResult:
+        """Execute workflow using the graph-based execution engine.
+        
+        Args:
+            file_path: Path to the workflow file
+            workflow_name: Name of the workflow to execute
+            source: Source code of the workflow
+        
+        Returns:
+            ExecutionResult with output or error
+        """
+        try:
+            # Import here to avoid circular dependency
+            from holon.services.graph_parser import parse_graph
+            from holon.execution.engine import ExecutionEngine, ExecutionContext
+            
+            sys.stderr.write(f"[RUNNER] Parsing graph from source\n")
+            sys.stderr.flush()
+            
+            # Parse graph from source
+            graph = parse_graph(source)
+            
+            sys.stderr.write(f"[RUNNER] Graph parsed: {len(graph.nodes)} nodes, {len(graph.edges)} edges\n")
+            sys.stderr.flush()
+            
+            # Create execution context
+            ctx = ExecutionContext(graph=graph)
+            
+            # Create and run execution engine
+            engine = ExecutionEngine()
+            output = await engine.execute_graph(ctx)
+            
+            return ExecutionResult(
+                output=output,
+                execution_trace=ctx.execution_trace,
+            )
+        
+        except Exception as e:
+            sys.stderr.write(f"[RUNNER] Graph execution error: {type(e).__name__}: {e}\n")
+            sys.stderr.flush()
+            import traceback
+            traceback.print_exc(file=sys.stderr)
+            
+            # Try to get error node from context if available
+            error_node_id = None
+            execution_trace = None
+            try:
+                if 'ctx' in locals():
+                    error_node_id = ctx.error_node_id
+                    execution_trace = ctx.execution_trace
+            except:
+                pass
+            
+            return ExecutionResult(
+                error=e,
+                error_node_id=error_node_id,
+                execution_trace=execution_trace,
+            )
 
 
 def run_workflow_sync(
