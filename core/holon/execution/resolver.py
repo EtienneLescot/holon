@@ -33,7 +33,7 @@ class SpecResolver:
         
         Args:
             node_id: Unique node identifier
-            node_type: Spec type (e.g., "llm.openai", "langchain.agent")
+            node_type: Spec type (e.g., "llm.model", "langchain.agent")
             props: Configuration properties
         
         Returns:

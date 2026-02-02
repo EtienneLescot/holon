@@ -43,7 +43,7 @@ export function ConfigPanel(props: Props): JSX.Element {
         {/* Header Area */}
         <div className="flex items-start justify-between gap-6 px-12 pt-16 pb-10">
           <div className="min-w-0">
-             <div className="text-[10px] font-black uppercase tracking-[0.5em] text-blue-500 mb-3">Holon System v4.0</div>
+            <div className="text-[10px] font-black uppercase tracking-[0.5em] text-blue-500 mb-3">Holon System v4.0</div>
             <h2 className="text-4xl font-black tracking-tighter text-white uppercase italic leading-tight">Inspector</h2>
             <div className="mt-4 text-xs text-white/40 truncate font-semibold tracking-wide border-l-2 border-white/10 pl-4">{headerLabel}</div>
           </div>
@@ -68,7 +68,7 @@ export function ConfigPanel(props: Props): JSX.Element {
                   {props.node.nodeType}
                 </span>
               ) : null}
-              
+
               {/* Run Workflow Button for workflow nodes */}
               {props.node.kind === "workflow" && props.onRunWorkflow && (
                 <button
@@ -82,7 +82,7 @@ export function ConfigPanel(props: Props): JSX.Element {
                   Run Workflow
                 </button>
               )}
-              
+
               {props.node.nodeType === "llm.model" && props.onOpenCredentials && (
                 <button
                   type="button"
@@ -151,47 +151,47 @@ export function ConfigPanel(props: Props): JSX.Element {
                       <section className="space-y-8">
                         <h3 className="text-[11px] font-black uppercase tracking-[0.5em] text-white/10">State Properties</h3>
                         <div className="space-y-6">
-                           {Object.entries(props.node.props).map(([key, value]) => (
-                             <div key={key} className="space-y-3">
-                               <div className="flex justify-between items-center px-1">
-                                 <label className="text-[10px] font-black uppercase tracking-[0.2em] text-white/30">{key}</label>
-                               </div>
-                               <textarea
-                                 className="w-full bg-black/40 border border-white/5 rounded-3xl p-6 text-[13px] text-blue-100/80 font-medium leading-relaxed focus:outline-none focus:border-blue-500/30 focus:bg-blue-500/5 transition-all resize-none overflow-hidden"
-                                 defaultValue={typeof value === 'string' ? value : JSON.stringify(value)}
-                                 onBlur={(e) => {
-                                   const newVal = e.target.value;
-                                   let parsedVal: any = newVal;
-                                   if (typeof value === 'number') {
-                                       parsedVal = Number(newVal);
-                                   } else if (typeof value === 'boolean') {
-                                       parsedVal = newVal.toLowerCase() === 'true';
-                                   } else if (typeof value === 'object' && value !== null) {
-                                       try {
-                                           parsedVal = JSON.parse(newVal);
-                                       } catch {
-                                           // fallback to original or string
-                                       }
-                                   }
-                                   
-                                   if (JSON.stringify(parsedVal) !== JSON.stringify(value)) {
-                                       props.onPatch?.(props.node!.id, { ...props.node!.props, [key]: parsedVal });
-                                   }
-                                 }}
-                                 onInput={(e) => {
-                                   const target = e.target as HTMLTextAreaElement;
-                                   target.style.height = 'auto';
-                                   target.style.height = target.scrollHeight + 'px';
-                                 }}
-                                 ref={(el) => {
-                                   if (el) {
-                                     el.style.height = 'auto';
-                                     el.style.height = el.scrollHeight + 'px';
-                                   }
-                                 }}
-                               />
-                             </div>
-                           ))}
+                          {Object.entries(props.node.props).map(([key, value]) => (
+                            <div key={key} className="space-y-3">
+                              <div className="flex justify-between items-center px-1">
+                                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-white/30">{key}</label>
+                              </div>
+                              <textarea
+                                className="w-full bg-black/40 border border-white/5 rounded-3xl p-6 text-[13px] text-blue-100/80 font-medium leading-relaxed focus:outline-none focus:border-blue-500/30 focus:bg-blue-500/5 transition-all resize-none overflow-hidden"
+                                defaultValue={typeof value === 'string' ? value : JSON.stringify(value)}
+                                onBlur={(e) => {
+                                  const newVal = e.target.value;
+                                  let parsedVal: any = newVal;
+                                  if (typeof value === 'number') {
+                                    parsedVal = Number(newVal);
+                                  } else if (typeof value === 'boolean') {
+                                    parsedVal = newVal.toLowerCase() === 'true';
+                                  } else if (typeof value === 'object' && value !== null) {
+                                    try {
+                                      parsedVal = JSON.parse(newVal);
+                                    } catch {
+                                      // fallback to original or string
+                                    }
+                                  }
+
+                                  if (JSON.stringify(parsedVal) !== JSON.stringify(value)) {
+                                    props.onPatch?.(props.node!.id, { ...props.node!.props, [key]: parsedVal });
+                                  }
+                                }}
+                                onInput={(e) => {
+                                  const target = e.target as HTMLTextAreaElement;
+                                  target.style.height = 'auto';
+                                  target.style.height = target.scrollHeight + 'px';
+                                }}
+                                ref={(el) => {
+                                  if (el) {
+                                    el.style.height = 'auto';
+                                    el.style.height = el.scrollHeight + 'px';
+                                  }
+                                }}
+                              />
+                            </div>
+                          ))}
                         </div>
                       </section>
                     )}
@@ -220,9 +220,9 @@ export function ConfigPanel(props: Props): JSX.Element {
                             {props.executionOutput[props.node.id].status === "error" ? (
                               <span className="px-3 py-1.5 rounded-lg bg-red-500/20 text-red-400 text-[9px] font-black uppercase tracking-[0.2em] flex items-center gap-2">
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-                                  <circle cx="12" cy="12" r="10"/>
-                                  <line x1="12" y1="8" x2="12" y2="12" stroke="white" strokeWidth="2" strokeLinecap="round"/>
-                                  <line x1="12" y1="16" x2="12.01" y2="16" stroke="white" strokeWidth="2" strokeLinecap="round"/>
+                                  <circle cx="12" cy="12" r="10" />
+                                  <line x1="12" y1="8" x2="12" y2="12" stroke="white" strokeWidth="2" strokeLinecap="round" />
+                                  <line x1="12" y1="16" x2="12.01" y2="16" stroke="white" strokeWidth="2" strokeLinecap="round" />
                                 </svg>
                                 Error
                               </span>
@@ -232,7 +232,7 @@ export function ConfigPanel(props: Props): JSX.Element {
                               </span>
                             )}
                           </div>
-                          
+
                           {/* Error Display */}
                           {props.executionOutput[props.node.id].status === "error" && props.executionOutput[props.node.id].error ? (
                             <div className="space-y-6">
@@ -240,9 +240,9 @@ export function ConfigPanel(props: Props): JSX.Element {
                                 <div className="flex items-start gap-4">
                                   <div className="w-12 h-12 rounded-2xl bg-red-500/20 flex items-center justify-center flex-shrink-0">
                                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-red-400">
-                                      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-                                      <line x1="12" y1="9" x2="12" y2="13"/>
-                                      <line x1="12" y1="17" x2="12.01" y2="17"/>
+                                      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                                      <line x1="12" y1="9" x2="12" y2="13" />
+                                      <line x1="12" y1="17" x2="12.01" y2="17" />
                                     </svg>
                                   </div>
                                   <div className="flex-1 space-y-3">
@@ -254,7 +254,7 @@ export function ConfigPanel(props: Props): JSX.Element {
                                     </div>
                                   </div>
                                 </div>
-                                
+
                                 {/* Suggestion based on error type */}
                                 {props.executionOutput[props.node.id].error_type === "AuthenticationError" && (
                                   <div className="pt-6 border-t border-red-500/20 space-y-4">
@@ -302,7 +302,7 @@ export function ConfigPanel(props: Props): JSX.Element {
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center p-24 text-center space-y-10">
             <div className="w-32 h-32 rounded-[50px] bg-white/5 flex items-center justify-center rotate-12 transition-transform hover:rotate-0 duration-700 shadow-2xl border border-white/5">
-               <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="0.5" strokeOpacity="0.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 8v4"></path><path d="M12 16h.01"></path></svg>
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="0.5" strokeOpacity="0.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 8v4"></path><path d="M12 16h.01"></path></svg>
             </div>
             <div className="space-y-4">
               <p className="text-white/30 text-xs font-black uppercase tracking-[0.3em] leading-loose">

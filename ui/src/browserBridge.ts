@@ -182,7 +182,7 @@ function postToUi(message: unknown): void {
     // This will appear in the browser console.
     // eslint-disable-next-line no-console
     console.log("browserBridge -> ui postToUi:", message);
-  } catch {}
+  } catch { }
   window.postMessage(message, "*");
 }
 
@@ -581,11 +581,11 @@ class BrowserDevBridge {
           method: "POST",
           body: JSON.stringify({ workflow_name: workflowName }),
         });
-        
+
         // Build output object with execution results
         const outputData: Record<string, unknown> = {};
         const key = `workflow:${workflowName}`;
-        
+
         if (r.success) {
           outputData[key] = { result: r.output, status: "success" };
         } else {
@@ -594,7 +594,7 @@ class BrowserDevBridge {
             error_type: r.error_type,
             status: "error",
           };
-          
+
           // Add error to the failed node
           if (r.error_node_id) {
             outputData[r.error_node_id] = {
@@ -604,7 +604,7 @@ class BrowserDevBridge {
             };
           }
         }
-        
+
         // Add trace info for all executed nodes
         if (r.execution_trace) {
           for (const trace of r.execution_trace) {
@@ -616,7 +616,7 @@ class BrowserDevBridge {
             }
           }
         }
-        
+
         postToUi({ type: "execution.output", output: outputData });
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);

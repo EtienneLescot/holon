@@ -237,6 +237,11 @@ export default function App(): JSX.Element {
   const [allCredentials, setAllCredentials] = useState<Record<string, Record<string, string>>>({});
   
   const [executionOutput, setExecutionOutput] = useState<Record<string, any> | null>(null);
+  const executionOutputRef = useRef<Record<string, any> | null>(null);
+  
+  useEffect(() => {
+    executionOutputRef.current = executionOutput;
+  }, [executionOutput]);
 
   const onSaveCredentials = useCallback((provider: string, creds: Record<string, string>) => {
     setAllCredentials((prev) => ({ ...prev, [provider]: creds }));
@@ -328,7 +333,7 @@ export default function App(): JSX.Element {
       const msg = parsed.data;
       if (msg.type === "graph.init" || msg.type === "graph.update") {
         setCoreNodes(msg.nodes);
-        setNodes(toReactFlowNodes(msg.nodes, { onAi, onDescribe, aiByNodeId, selectedNodeId, executionOutput }));
+        setNodes(toReactFlowNodes(msg.nodes, { onAi, onDescribe, aiByNodeId, selectedNodeId, executionOutput: executionOutputRef.current }));
         setEdges(toReactFlowEdges(msg.edges));
       }
 
@@ -363,7 +368,7 @@ export default function App(): JSX.Element {
 
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
-  }, [aiByNodeId, onAi, onDescribe, selectedNodeId, setEdges, setNodes, executionOutput]);
+  }, [aiByNodeId, onAi, onDescribe, selectedNodeId, setEdges, setNodes]);
 
   // Update nodes when executionOutput changes to show error states
   useEffect(() => {

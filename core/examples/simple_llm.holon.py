@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 from holon import node, workflow, link, spec
+spec("spec:llm.model:108c365b-01c7-4ff3-bb36-1d0c0739c66f", type = "llm.model", label = "LLM Model", props = {"model_name": "gpt-4o", "temperature": 0.7})
 
 # Simple LLM Model spec
 spec(
-    "spec:llm.openai:simple",
-    type="llm.openai",
+    "spec:llm.model:simple",
+    type="llm.model",
     label="GPT-4o",
-    props={"model_name": "gpt-4o", "temperature": 0.7}
+    props={
+        "provider": "openai",
+        "model_name": "gpt-4o",
+        "temperature": 0.7
+    }
 )
 
 # Simple Agent spec
@@ -26,7 +31,7 @@ spec(
 async def main() -> str:
     """Simple workflow: connect LLM to agent and execute."""
     # Connect LLM to agent's llm port
-    link("spec:llm.openai:simple", "output", "spec:agent.simple:chat", "llm")
+    link("spec:llm.model:simple", "llm", "spec:agent.simple:chat", "llm")
     link("workflow:main", "start", "spec:agent.simple:chat", "input")
     
     # The agent will use user_prompt from its props as input

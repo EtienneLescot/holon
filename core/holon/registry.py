@@ -195,24 +195,54 @@ def get_global_registry() -> SpecTypeRegistry:
 
 @register_spec_type("llm.model")
 def _resolve_llm_model(props: dict[str, Any]) -> Any:
-    """Resolve an LLM model spec node.
-    
-    This is a basic resolver. For production use, register library-specific
-    resolvers (e.g., via holon.library.llm or holon.library.langchain).
+    """Resolve an LLM model spec node with provider support.
     
     Props:
+        provider: Provider name (e.g., "openai", "anthropic") - default: "openai"
         model_name: Model identifier (e.g., "gpt-4o", "claude-3-opus")
         temperature: Sampling temperature (default: 0.7)
-        max_tokens: Maximum tokens to generate
-        **kwargs: Additional model-specific parameters
+        **kwargs: Additional provider-specific parameters
     """
-    try:
-        from holon.library.llm import create_llm_model
-        return create_llm_model(props)
-    except ImportError:
-        # Fallback: return a simple config object
-        from types import SimpleNamespace
-        return SimpleNamespace(**props)
+    import sys
+    from holon.library.credentials import credentials_manager
+    
+    provider = props.get("provider", "openai")
+    model_name = props.get("model_name", "gpt-4o")
+    temperature = props.get("temperature", 0.7)
+    
+    sys.stderr.write(f"[RESOLVER] Creating LLM: provider={provider}, model={model_name}, temp={temperature}\n")
+    sys.stderr.flush()
+    
+    # Delegate to provider-specific implementation
+    if provider == "openai":
+        try:
+            from langchain_openai import ChatOpenAI
+            
+            api_key = credentials_manager.get_api_key(provider)
+            if not api_key:
+                sys.stderr.write(f"[RESOLVER] WARNING: No API key for provider '{provider}'\n")
+                sys.stderr.flush()
+            
+            llm = ChatOpenAI(
+                model=model_name,
+                temperature=temperature,
+                openai_api_key=api_key,
+            )
+            
+            sys.stderr.write(f"[RESOLVER] LLM created successfully\n")
+            sys.stderr.flush()
+            
+            return llm
+        except ImportError as e:
+            sys.stderr.write(f"[RESOLVER] ERROR: langchain-openai not installed: {e}\n")
+            sys.stderr.flush()
+            raise ImportError(
+                "langchain-openai not available. Install with: pip install langchain-openai"
+            ) from e
+    
+    # Fallback for unknown providers
+    from types import SimpleNamespace
+    return SimpleNamespace(**props)
 
 
 @register_spec_type("memory.buffer")

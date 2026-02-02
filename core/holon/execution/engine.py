@@ -106,7 +106,7 @@ class ExecutionEngine:
         """Build topological execution order for nodes.
         
         Strategy:
-        1. Spec nodes of type llm.openai, memory, tools are "providers" (already resolved)
+        1. Spec nodes of type llm.model, memory, tools are "providers" (already resolved)
         2. Spec nodes of type langchain.agent need to be executed (they consume inputs)
         3. Use topological sort based on port dependencies
         
