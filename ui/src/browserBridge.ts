@@ -335,6 +335,15 @@ class BrowserDevBridge {
     } catch (e) {
       console.error("Failed to fetch credentials", e);
     }
+
+    // Fetch available node types
+    try {
+      const nodeTypesRes = await fetchJson<{ nodeTypes: Array<{ type: string; label: string; category: string; description: string }> }>("/api/node_types");
+      console.log("[BrowserBridge] Fetched node types:", nodeTypesRes.nodeTypes);
+      postToUi({ type: "nodeTypes.update", nodeTypes: nodeTypesRes.nodeTypes });
+    } catch (e) {
+      console.error("Failed to fetch node types", e);
+    }
   }
 
   startFilePolling(intervalMs: number = 350): void {

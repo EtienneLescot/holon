@@ -104,6 +104,17 @@ export const ExecutionOutputSchema = z.object({
   output: z.record(z.unknown()),
 });
 
+export const NodeTypesUpdateSchema = z.object({
+  type: z.literal("nodeTypes.update"),
+  nodeTypes: z.array(z.object({
+    type: z.string(),
+    label: z.string(),
+    category: z.string(),
+    description: z.string().optional(),
+    defaultProps: z.record(z.unknown()).optional(),
+  })),
+});
+
 export const ToUiMessageSchema = z.union([
   GraphInitSchema,
   GraphUpdateSchema,
@@ -113,6 +124,7 @@ export const ToUiMessageSchema = z.union([
   CredentialsUpdateSchema,
   WorkflowExecutionResultSchema,
   ExecutionOutputSchema,
+  NodeTypesUpdateSchema,
 ]);
 export type ToUiMessage = z.infer<typeof ToUiMessageSchema>;
 

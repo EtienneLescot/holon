@@ -215,6 +215,17 @@ export class RpcClient {
     return response.result;
   }
 
+  /**
+   * Generic call method for any RPC method
+   */
+  public async call(method: string, params: JsonObject = {}): Promise<unknown> {
+    const response = await this.request({ method, params });
+    if (response.error) {
+      throw new Error(response.error.message);
+    }
+    return response.result;
+  }
+
   public async parseSource(source: string): Promise<CoreGraph> {
     const response = await this.request({ method: "parse_source", params: { source } });
     if (response.error) {

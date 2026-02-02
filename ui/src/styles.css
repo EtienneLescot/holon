@@ -92,6 +92,19 @@ body {
   cursor: not-allowed;
 }
 
+.holonHeaderButtonPrimary {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  border-color: rgba(59, 130, 246, 0.3);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
+}
+
+.holonHeaderButtonPrimary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: 0 8px 24px rgba(59, 130, 246, 0.4);
+}
+
 .holonMainSplit {
   flex: 1;
   display: flex;
@@ -431,4 +444,137 @@ body {
 @keyframes holonPulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
+}
+/* Node Search Modal */
+.holonNodeSearchModal {
+  max-width: 700px !important;
+  max-height: 80vh !important;
+  display: flex;
+  flex-direction: column;
+}
+
+.holonNodeSearchControls {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.holonNodeSearchInput {
+  width: 100%;
+  padding: 14px 18px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  color: #e2e8f0;
+  font-size: 15px;
+  transition: all 0.2s;
+}
+
+.holonNodeSearchInput:focus {
+  outline: none;
+  border-color: #3b82f6;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.holonNodeCategoryFilters {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.holonCategoryButton {
+  padding: 8px 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.holonCategoryButton:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.15);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.holonCategoryButton.active {
+  background: rgba(59, 130, 246, 0.15);
+  border-color: rgba(59, 130, 246, 0.3);
+  color: #60a5fa;
+}
+
+.holonNodeSearchResults {
+  flex: 1;
+  overflow-y: auto;
+  margin: 0 -24px;
+  padding: 0 24px;
+}
+
+.holonNodeSearchEmpty {
+  text-align: center;
+  padding: 60px 20px;
+  color: rgba(255, 255, 255, 0.3);
+  font-size: 14px;
+}
+
+.holonNodeCategory {
+  margin-bottom: 28px;
+}
+
+.holonNodeCategoryTitle {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: rgba(255, 255, 255, 0.3);
+  margin-bottom: 12px;
+}
+
+.holonNodeTypesList {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.holonNodeTypeCard {
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.holonNodeTypeCard:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(59, 130, 246, 0.3);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.1);
+}
+
+.holonNodeTypeLabel {
+  font-size: 14px;
+  font-weight: 700;
+  color: #e2e8f0;
+  margin-bottom: 4px;
+}
+
+.holonNodeTypeId {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.3);
+  font-family: 'Courier New', monospace;
+  margin-bottom: 8px;
+}
+
+.holonNodeTypeDescription {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  line-height: 1.5;
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import ReactFlow, {
   Background,
   Controls,
@@ -24,6 +24,15 @@ import { postToExtension } from "./vscodeBridge";
 import { inferPorts, type PortSpec } from "./ports";
 import { ConfigPanel } from "./ConfigPanel";
 import { CredentialsModal } from "./CredentialsModal";
+import { NodeSearchModal } from "./NodeSearchModal";
+import { 
+  useGraphStore, 
+  useUIStore, 
+  useExecutionStore, 
+  useCredentialsStore,
+  useNodeTypesStore,
+  type AiStatus 
+} from "./store";
 
 type UiNodeData = {
   label: string;
@@ -42,9 +51,7 @@ type UiNodeData = {
   onDescribe: (nodeId: string) => void;
 };
 
-type AiStatus = { status: "idle" | "working" | "error" | "done"; message?: string };
-
-type PromptModalState = { nodeId: string; title: string; prompt: string };
+// Remove duplicate type - now imported from store
 
 function toReactFlowNodes(
   input: CoreNode[],
@@ -222,21 +229,39 @@ export default function App(): JSX.Element {
   const [nodes, setNodes, onNodesChange] = useNodesState<UiNodeData>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([] as Edge[]);
   const nodeTypes = useMemo(() => ({ holon: HolonNode }), []);
-  const [coreNodes, setCoreNodes] = useState<CoreNode[]>([]);
-
-  const [aiByNodeId, setAiByNodeId] = useState<Record<string, AiStatus | undefined>>({});
-  const [aiModalNodeId, setAiModalNodeId] = useState<string | null>(null);
-  const [aiInstruction, setAiInstruction] = useState<string>("");
-  const aiTextareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const [promptModal, setPromptModal] = useState<PromptModalState | null>(null);
-
-  const [credentialModal, setCredentialModal] = useState<{ provider: string; isOpen: boolean }>({
-    provider: "openai",
-    isOpen: false,
-  });
-  const [allCredentials, setAllCredentials] = useState<Record<string, Record<string, string>>>({});
   
-  const [executionOutput, setExecutionOutput] = useState<Record<string, any> | null>(null);
+  // Zustand stores
+  const coreNodes = useGraphStore(s => s.nodes);
+  const aiByNodeId = useGraphStore(s => s.aiStatusByNodeId);
+  const { setGraph, setAiStatus } = useGraphStore(s => s.actions);
+  
+  const selectedNodeId = useUIStore(s => s.selectedNodeId);
+  const aiModalNodeId = useUIStore(s => s.aiModalNodeId);
+  const aiInstruction = useUIStore(s => s.aiInstruction);
+  const promptModal = useUIStore(s => s.promptModal);
+  const {
+    selectNode,
+    openAiModal,
+    closeAiModal: closeAiModalAction,
+    setAiInstruction,
+    closePromptModal: closePromptModalAction,
+    openPromptModal,
+  } = useUIStore(s => s.actions);
+  
+  const executionOutput = useExecutionStore(s => s.output);
+  const { setOutput: setExecutionOutput } = useExecutionStore(s => s.actions);
+  
+  const credentialsIsOpen = useCredentialsStore(s => s.isModalOpen);
+  const credentialsProvider = useCredentialsStore(s => s.currentProvider);
+  const credentials = useCredentialsStore(s => s.credentials);
+  const { setCredentials, openModal: openCredentialsModal, closeModal: closeCredentialsModal } = useCredentialsStore(s => s.actions);
+  
+  const isNodeSearchOpen = useUIStore(s => s.isNodeSearchOpen);
+  const { openNodeSearch, closeNodeSearch } = useUIStore(s => s.actions);
+  
+  const { setNodeTypes } = useNodeTypesStore(s => s.actions);
+  
+  const aiTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const executionOutputRef = useRef<Record<string, any> | null>(null);
   
   useEffect(() => {
@@ -244,24 +269,21 @@ export default function App(): JSX.Element {
   }, [executionOutput]);
 
   const onSaveCredentials = useCallback((provider: string, creds: Record<string, string>) => {
-    setAllCredentials((prev) => ({ ...prev, [provider]: creds }));
+    setCredentials(provider, creds);
     postToExtension({ type: "ui.credentials.set", provider, credentials: creds });
-  }, []);
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  }, [setCredentials]);
 
   const onAi = useCallback((nodeId: string) => {
-    setAiModalNodeId(nodeId);
-    setAiInstruction("");
-  }, []);
+    openAiModal(nodeId);
+  }, [openAiModal]);
 
   const closeAiModal = useCallback(() => {
-    setAiModalNodeId(null);
-    setAiInstruction("");
-  }, []);
+    closeAiModalAction();
+  }, [closeAiModalAction]);
 
   const closePromptModal = useCallback(() => {
-    setPromptModal(null);
-  }, []);
+    closePromptModalAction();
+  }, [closePromptModalAction]);
 
   const submitAiModal = useCallback(() => {
     if (!aiModalNodeId) {
@@ -272,8 +294,8 @@ export default function App(): JSX.Element {
       return;
     }
     postToExtension({ type: "ui.node.aiRequest", nodeId: aiModalNodeId, instruction });
-    setAiModalNodeId(null);
-  }, [aiInstruction, aiModalNodeId]);
+    closeAiModalAction();
+  }, [aiInstruction, aiModalNodeId, closeAiModalAction]);
 
   useEffect(() => {
     if (!aiModalNodeId) {
@@ -332,7 +354,7 @@ export default function App(): JSX.Element {
 
       const msg = parsed.data;
       if (msg.type === "graph.init" || msg.type === "graph.update") {
-        setCoreNodes(msg.nodes);
+        setGraph(msg.nodes, msg.edges);
         setNodes(toReactFlowNodes(msg.nodes, { onAi, onDescribe, aiByNodeId, selectedNodeId, executionOutput: executionOutputRef.current }));
         setEdges(toReactFlowEdges(msg.edges));
       }
@@ -343,16 +365,18 @@ export default function App(): JSX.Element {
 
       if (msg.type === "ai.status") {
         const next: AiStatus = msg.message ? { status: msg.status, message: msg.message } : { status: msg.status };
-        setAiByNodeId((prev) => ({ ...prev, [msg.nodeId]: next }));
+        setAiStatus(msg.nodeId, next);
         setNodes((prev) => prev.map((n) => n.id === msg.nodeId ? { ...n, data: { ...n.data, aiStatus: next } } : n));
       }
 
       if (msg.type === "ai.prompt") {
-        setPromptModal({ nodeId: msg.nodeId, title: msg.title, prompt: msg.prompt });
+        openPromptModal({ nodeId: msg.nodeId, title: msg.title, prompt: msg.prompt });
       }
 
       if (msg.type === "credentials.update") {
-        setAllCredentials(msg.credentials);
+        Object.entries(msg.credentials).forEach(([provider, creds]) => {
+          setCredentials(provider, creds);
+        });
       }
       
       if (msg.type === "workflow.executionResult") {
@@ -364,11 +388,16 @@ export default function App(): JSX.Element {
         console.log("setting executionOutput:", msg.output);
         setExecutionOutput(msg.output);
       }
+      
+      if (msg.type === "nodeTypes.update") {
+        console.log("Received nodeTypes.update:", msg.nodeTypes);
+        setNodeTypes(msg.nodeTypes as any);
+      }
     };
 
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
-  }, [aiByNodeId, onAi, onDescribe, selectedNodeId, setEdges, setNodes]);
+  }, [aiByNodeId, onAi, onDescribe, selectedNodeId, setEdges, setNodes, setGraph, setAiStatus, openPromptModal, setCredentials, setExecutionOutput, setNodeTypes]);
 
   // Update nodes when executionOutput changes to show error states
   useEffect(() => {
@@ -380,9 +409,9 @@ export default function App(): JSX.Element {
   const onSelectionChange = useCallback((params: OnSelectionChangeParams) => {
     const first = params.nodes && params.nodes.length > 0 ? params.nodes[0] : undefined;
     if (first) {
-      setSelectedNodeId(first.id);
+      selectNode(first.id);
     }
-  }, []);
+  }, [selectNode]);
 
   const pendingPositionUpdatesRef = useRef<Map<string, { x: number; y: number }>>(new Map());
 
@@ -455,74 +484,6 @@ export default function App(): JSX.Element {
     });
   }, [edges, nodes, setNodes]);
 
-  const createSpecNode = useCallback(
-    (spec: {
-      type: string;
-      label: string;
-      props?: Record<string, unknown>;
-    }) => {
-      // Place near the top-left, staggered.
-      const pos = { x: 60 + (nodes.length % 4) * 260, y: 100 + Math.floor(nodes.length / 4) * 140 };
-
-      postToExtension({
-        type: "ui.nodeCreated",
-        node: {
-          id: `spec:${spec.type}:${randomId()}`,
-          type: spec.type,
-          label: spec.label,
-          inputs: [],
-          outputs: [],
-          props: spec.props ?? {},
-        },
-        position: pos,
-      });
-    },
-    [nodes.length]
-  );
-
-  const onAddAgent = useCallback(() => {
-    createSpecNode({
-      type: "langchain.agent",
-      label: "LangChain Agent",
-      props: {
-        system_prompt: "You are a helpful assistant.",
-        user_prompt: "Tell me a story about a brave robot.",
-      },
-    });
-  }, [createSpecNode]);
-
-  const onAddLlm = useCallback(() => {
-    createSpecNode({
-      type: "llm.model",
-      label: "LLM Model",
-      props: { model_name: "gpt-4o", temperature: 0.7 },
-    });
-  }, [createSpecNode]);
-
-  const onAddMemory = useCallback(() => {
-    createSpecNode({
-      type: "memory.buffer",
-      label: "Memory Buffer",
-      props: { maxMessages: 20 },
-    });
-  }, [createSpecNode]);
-
-  const onAddTool = useCallback(() => {
-    createSpecNode({
-      type: "tool.example",
-      label: "Example Tool",
-      props: { name: "example_tool" },
-    });
-  }, [createSpecNode]);
-
-  const onAddParser = useCallback(() => {
-    createSpecNode({
-      type: "parser.json",
-      label: "JSON Parser",
-      props: { schema: {} },
-    });
-  }, [createSpecNode]);
-
   const onConnect = useCallback((connection: Connection) => {
     if (!connection.source || !connection.target) {
       return;
@@ -578,20 +539,12 @@ export default function App(): JSX.Element {
           >
             Delete
           </button>
-          <button type="button" className="holonHeaderButton" onClick={onAddAgent}>
-            + Agent
-          </button>
-          <button type="button" className="holonHeaderButton" onClick={onAddLlm}>
-            + LLM
-          </button>
-          <button type="button" className="holonHeaderButton" onClick={onAddMemory}>
-            + Memory
-          </button>
-          <button type="button" className="holonHeaderButton" onClick={onAddTool}>
-            + Tool
-          </button>
-          <button type="button" className="holonHeaderButton" onClick={onAddParser}>
-            + Parser
+          <button 
+            type="button" 
+            className="holonHeaderButton holonHeaderButtonPrimary" 
+            onClick={openNodeSearch}
+          >
+            + Add Node
           </button>
           <button type="button" className="holonHeaderButton" onClick={onAutoLayout} disabled={nodes.length === 0}>
             Auto layout
@@ -608,8 +561,8 @@ export default function App(): JSX.Element {
             onNodeDragStop={onNodeDragStop}
             onConnect={onConnect}
             onSelectionChange={onSelectionChange}
-            onNodeClick={(_e, n) => setSelectedNodeId(n.id)}
-            onPaneClick={() => setSelectedNodeId(null)}
+            onNodeClick={(_e, n) => selectNode(n.id)}
+            onPaneClick={() => selectNode(null)}
             nodeTypes={nodeTypes}
             noDragClassName="nodrag"
             noPanClassName="nopan"
@@ -623,20 +576,20 @@ export default function App(): JSX.Element {
         </div>
         <ConfigPanel
           node={selectedCoreNode}
-          onClose={() => setSelectedNodeId(null)}
+          onClose={() => selectNode(null)}
           onDelete={onDeleteNode}
           onPatch={onPatchNode}
-          onOpenCredentials={(provider) => setCredentialModal({ provider, isOpen: true })}
+          onOpenCredentials={(provider) => openCredentialsModal(provider)}
           onRunWorkflow={onRunWorkflow}
           executionOutput={executionOutput}
         />
       </div>
 
       <CredentialsModal
-        isOpen={credentialModal.isOpen}
-        provider={credentialModal.provider}
-        initialCreds={allCredentials[credentialModal.provider]}
-        onClose={() => setCredentialModal((prev) => ({ ...prev, isOpen: false }))}
+        isOpen={credentialsIsOpen}
+        provider={credentialsProvider}
+        initialCreds={credentials[credentialsProvider]}
+        onClose={() => closeCredentialsModal()}
         onSave={onSaveCredentials}
       />
 
@@ -716,6 +669,8 @@ export default function App(): JSX.Element {
           </div>
         </div>
       )}
+
+      <NodeSearchModal isOpen={isNodeSearchOpen} onClose={closeNodeSearch} />
     </div>
   );
 }

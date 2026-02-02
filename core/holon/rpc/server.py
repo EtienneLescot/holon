@@ -25,6 +25,7 @@ from holon.services.patcher import delete_node as delete_node_source
 from holon.services.patcher import patch_node as patch_node_source
 from holon.services.patcher import patch_spec_node as patch_spec_node_source
 from holon.services.patcher import rename_node as rename_node_source
+from holon.api import get_available_node_types, get_node_type_categories
 
 
 @dataclass(frozen=True, slots=True)
@@ -242,6 +243,20 @@ def handle_request(request: Any) -> dict[str, Any]:
                 node_id=params.node_id,
             )
             return {"id": request_id, "result": {"source": updated}}
+        except Exception as exc:  # noqa: BLE001 - return structured RPC errors
+            return {"id": request_id, "error": {"message": _format_error(exc)}}
+    
+    if method == "get_available_node_types":
+        try:
+            node_types = get_available_node_types()
+            return {"id": request_id, "result": {"nodeTypes": node_types}}
+        except Exception as exc:  # noqa: BLE001 - return structured RPC errors
+            return {"id": request_id, "error": {"message": _format_error(exc)}}
+    
+    if method == "get_node_type_categories":
+        try:
+            categories = get_node_type_categories()
+            return {"id": request_id, "result": {"categories": categories}}
         except Exception as exc:  # noqa: BLE001 - return structured RPC errors
             return {"id": request_id, "error": {"message": _format_error(exc)}}
 

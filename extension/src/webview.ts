@@ -10,6 +10,9 @@ type WebviewToExtensionMessage =
       type: "ui.ready";
     }
   | {
+      type: "ui.nodeTypes.request";
+    }
+  | {
       type: "ui.nodesChanged";
       nodes: Array<{ id: string; position: { x: number; y: number } }>;
     }
@@ -100,6 +103,16 @@ type ExtensionToWebviewMessage =
   | {
       type: "execution.output";
       output: Record<string, unknown>;
+    }
+  | {
+      type: "nodeTypes.update";
+      nodeTypes: Array<{
+        type: string;
+        label: string;
+        category: string;
+        description?: string;
+        defaultProps?: Record<string, unknown>;
+      }>;
     };
 
 export class HolonPanel {
@@ -180,6 +193,9 @@ export class HolonPanel {
           case "ui.ready":
             await this.onUiReady();
             return;
+          case "ui.nodeTypes.request":
+            await this.onUiNodeTypesRequest();
+            return;
           case "ui.nodesChanged":
             this.onUiNodesChanged(message.nodes);
             return;
@@ -252,6 +268,9 @@ export class HolonPanel {
     // Bind document listeners once the UI is ready.
     this.bindEditorWatchers();
 
+    // Load and send available node types
+    await this.loadAndSendNodeTypes();
+
     // Parse the current active editor if it's a holon file.
     const active = vscode.window.activeTextEditor?.document;
     if (active && isHolonDocument(active)) {
@@ -262,6 +281,24 @@ export class HolonPanel {
     // No holon file open; render empty state.
     this.hasSentGraph = true;
     this.postMessage({ type: "graph.init", nodes: [], edges: [] });
+  }
+
+  private async onUiNodeTypesRequest(): Promise<void> {
+    this.output.appendLine("UI: nodeTypes.request");
+    await this.loadAndSendNodeTypes();
+  }
+
+  private async loadAndSendNodeTypes(): Promise<void> {
+    try {
+      const rpc = await this.ensureRpc();
+      const result = await rpc.call("get_available_node_types", {});
+      if (result && typeof result === "object" && "nodeTypes" in result) {
+        this.postMessage({ type: "nodeTypes.update", nodeTypes: result.nodeTypes as any });
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.output.appendLine(`Failed to load node types: ${message}`);
+    }
   }
 
   private onUiNodesChanged(nodes: Array<{ id: string; position: { x: number; y: number } }>): void {
@@ -732,10 +769,10 @@ export class HolonPanel {
       // Normalize output to an object so the UI Zod schema accepts it,
       // and key it by the workflow node id expected by the UI (`workflow:<name>`).
       let out: unknown = result;
-      if (isObject(result) && Object.prototype.hasOwnProperty.call(result, "output")) {
+      if (result && typeof result === "object" && "output" in result) {
         out = (result as Record<string, unknown>)["output"];
       }
-      if (!isObject(out)) {
+      if (!out || typeof out !== "object") {
         out = { result: out };
       }
       const key = `workflow:${workflowName}`;

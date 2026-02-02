@@ -40,6 +40,7 @@ from holon.services.patcher import (
     patch_spec_node,
 )
 from holon.library.credentials import credentials_manager
+from holon.api import get_available_node_types
 from holon.runner import run_workflow_sync
 
 
@@ -170,6 +171,7 @@ def _make_handler(state: _State) -> type[BaseHTTPRequestHandler]:
                             "source": "/api/source",
                             "parse": "/api/parse",
                             "credentials": "/api/credentials",
+                            "node_types": "/api/node_types",
                             "add_spec_node": "/api/add_spec_node",
                             "add_link": "/api/add_link",
                             "patch_node": "/api/patch_node",
@@ -201,6 +203,15 @@ def _make_handler(state: _State) -> type[BaseHTTPRequestHandler]:
                 else:
                     # In a real app we might not want to send everything back
                     self._send_json(200, credentials_manager._store)
+                return
+            if self.path == "/api/node_types":
+                try:
+                    node_types = get_available_node_types()
+                    print(f"[DEVSERVER] Returning {len(node_types)} node types", file=sys.stderr)
+                    self._send_json(200, {"nodeTypes": node_types})
+                except Exception as exc:
+                    print(f"[DEVSERVER] Error getting node types: {exc}", file=sys.stderr)
+                    self._send_json(500, {"error": str(exc)})
                 return
             self._send_json(404, {"error": "not_found"})
 
