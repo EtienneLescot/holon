@@ -1,15 +1,33 @@
 @import "tailwindcss";
 
+:root {
+  --bg: #0b0c10;
+  --bg-rgb: 11,12,16;
+  --surface: #0f1114;
+  --card: #1a1c23;
+  --panel-bg: rgba(10,11,14,0.6);
+  --text: #e6eef8;
+  --muted: rgba(255,255,255,0.35);
+  --accent: #3b82f6;
+  --accent-600: #2563eb;
+  --accent-300: #60a5fa;
+  --accent-alt: #59b8f6;
+  --scroll-thumb: rgba(255,255,255,0.06);
+  --scroll-thumb-hover: rgba(255,255,255,0.12);
+}
+
 html, body, #root {
   height: 100%;
   margin: 0;
   overflow: hidden;
-  background-color: #0b0c10;
+  background-color: var(--bg);
 }
 
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  color: #e2e8f0;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 .holonRoot {
@@ -21,9 +39,9 @@ body {
 /* Header Modernization */
 .header {
   height: 90px;
-  background: rgba(10, 11, 14, 0.4);
-  backdrop-filter: blur(40px) saturate(180%);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(var(--bg-rgb), 0.45);
+  backdrop-filter: blur(36px) saturate(160%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
   display: flex;
   align-items: center;
   padding: 0 40px;
@@ -31,29 +49,27 @@ body {
   z-index: 100;
 }
 
-.holonTitle {
-  font-size: 28px;
-  font-weight: 900;
-  color: #fff;
-  letter-spacing: -0.06em;
-  text-transform: uppercase;
-  font-style: italic;
-  background: linear-gradient(135deg, #fff 40%, rgba(255,255,255,0.4) 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-.badge {
+.holonAiButton {
+  appearance: none;
   background: rgba(255, 255, 255, 0.03);
-  color: rgba(255, 255, 255, 0.3);
+  color: var(--text);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
   padding: 8px 16px;
-  border-radius: 14px;
   font-size: 10px;
   font-weight: 900;
   text-transform: uppercase;
-  letter-spacing: 0.2em;
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  letter-spacing: 0.15em;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.19, 1, 0.22, 1);
 }
+.holonAiButton:hover {
+  background: var(--accent-300);
+  color: #000;
+  transform: translateY(-2px);
+  box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+}
+ 
 
 .holonHeaderActions {
   margin-left: auto;
@@ -110,7 +126,7 @@ body {
   display: flex;
   flex-direction: row;
   min-height: 0;
-  background: #050608;
+  background: var(--surface);
 }
 
 .canvas {
@@ -149,7 +165,7 @@ body {
 }
 
 .holonNodeInner {
-  background: #1a1c23;
+  background: var(--card);
   border-radius: 13px;
   padding: 14px;
 }
@@ -177,7 +193,7 @@ body {
 .holonNodeTitle {
   font-size: 16px;
   font-weight: 900;
-  color: #fff;
+  color: var(--text);
   letter-spacing: -0.02em;
   text-transform: uppercase;
   font-style: italic;
@@ -187,9 +203,9 @@ body {
 .holonConfigPanel {
   position: relative;
   height: 100%;
-  background: rgba(10, 11, 14, 0.6);
-  backdrop-filter: blur(40px) saturate(180%);
-  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  background: var(--panel-bg);
+  backdrop-filter: blur(36px) saturate(160%);
+  -webkit-backdrop-filter: blur(36px) saturate(160%);
   transition: all 0.5s cubic-bezier(0.19, 1, 0.22, 1);
   overflow: hidden;
   flex-shrink: 0;
@@ -258,11 +274,21 @@ body {
   font-weight: 900;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: rgba(255, 255, 255, 0.4);
-  background: rgba(255, 255, 255, 0.03);
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.02);
   padding: 4px 8px;
   border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-track {
@@ -270,12 +296,14 @@ body {
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--scroll-thumb);
   border-radius: 10px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--scroll-thumb-hover);
 }
 
 .holonTab {
@@ -283,20 +311,20 @@ body {
   font-size: 13px;
   font-weight: 600;
   border-radius: 8px;
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--muted);
   transition: all 0.2s;
 }
 
 .holonTab-active {
   background: rgba(255, 255, 255, 0.05);
-  color: #fff;
+  color: var(--text);
 }
 
 /* Generic Components */
 .holonButton {
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.1);
-  color: #fff;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  color: var(--text);
   padding: 8px 16px;
   border-radius: 8px;
   font-weight: 500;
@@ -306,25 +334,25 @@ body {
 }
 
 .holonButton:hover {
-  background: rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.08);
 }
 
 .holonButtonPrimary {
-  background: #3b82f6;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-600) 100%);
   border: none;
   color: #fff;
 }
 
 .holonButtonPrimary:hover {
-  background: #2563eb;
+  background: linear-gradient(135deg, var(--accent-300) 0%, var(--accent) 100%);
   transform: translateY(-1px);
 }
 
 .holonInput {
   background: rgba(0,0,0,0.2);
-  border: 1px solid rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.08);
   border-radius: 8px;
-  color: #fff;
+  color: var(--text);
   padding: 10px;
   font-size: 13px;
 }
@@ -374,16 +402,16 @@ body {
 .holonModalHeader {
   font-size: 18px;
   font-weight: 700;
-  color: #fff;
+  color: var(--text);
 }
 
 .holonModalTextarea {
   width: 100%;
   min-height: 120px;
   background: rgba(0, 0, 0, 0.3);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 8px;
-  color: #fff;
+  color: var(--text);
   padding: 12px;
   font-size: 14px;
   outline: none;
@@ -391,7 +419,7 @@ body {
 }
 
 .holonModalTextarea:focus {
-  border-color: #3b82f6;
+  border-color: var(--accent);
 }
 
 .holonModalButtons {
@@ -404,12 +432,93 @@ body {
   margin-top: 20px;
   font-size: 11px;
   line-height: 1.6;
-  color: rgba(255, 255, 255, 0.4);
+  color: var(--muted);
   font-style: italic;
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+/* Select styling: rounded, high-contrast, modern dropdown arrow */
+.holonSelectWrapper {
+  position: relative;
+}
+
+.holonSelect {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  width: 100%;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  color: var(--text);
+  padding: 0.9rem 1.6rem 0.9rem 1.2rem;
+  border-radius: 24px;
+  font-size: 14px;
+  font-weight: 600;
+  outline: none;
+  cursor: pointer;
+  transition: box-shadow 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+
+.holonSelect:focus {
+  box-shadow: 0 6px 18px rgba(59,130,246,0.12);
+  border-color: var(--accent-600);
+  background: rgba(59,130,246,0.03);
+}
+
+/* Custom arrow using background SVG so it respects rounded corners */
+.holonSelect[style] {
+  /* allow inline style arrow fallback */
+}
+
+.holonSelectWrapper::after {
+  /* Arrow glyph moved into CustomSelect internal SVG to avoid duplication. */
+  content: '';
+  display: none;
+}
+
+/* Ensure custom dropdown lists are fully opaque for readability */
+.holonSelectList {
+  background: var(--card) !important;
+  /* Remove any backdrop blur or transparency that shows underlying content */
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* Option styling is limited cross-browser; keep defaults but ensure readable */
+.holonSelect option {
+  color: #111;
+  background: #fff;
+}
+
+/* Label for form fields inside panels */
+.holonLabel {
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+/* Input textarea used across config panel */
+.holonInput {
+  width: 100%;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.06);
+  color: var(--text);
+  padding: 1rem;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 500;
+  outline: none;
+  resize: none;
+}
+
+.holonInput:focus {
+  border-color: var(--accent-600);
+  box-shadow: 0 8px 24px rgba(59,130,246,0.08);
 }
 
 .holonNodeStatus {

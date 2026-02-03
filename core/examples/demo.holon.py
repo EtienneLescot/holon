@@ -4,15 +4,7 @@ from holon import node, workflow, link, spec
 
 # LLM Model spec with provider
 spec(
-    "spec:llm.model:gpt4o",
-    type="llm.model",
-    label="GPT-4o",
-    props={
-        "provider": "openai",
-        "model_name": "gpt-4o",
-        "temperature": 0.7
-    }
-)
+    "spec:llm.model:gpt4o", type = "llm.model", label = "GPT-4o", props = {"provider": "openai", "model_name": "gpt-5-mini", "temperature": 0.7})
 
 # Simple Agent spec
 spec(
