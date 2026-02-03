@@ -380,6 +380,33 @@ export class RpcClient {
     return result["source"];
   }
 
+  public async deleteEdge(
+    source: string,
+    sourceNodeId: string,
+    sourcePort: string | null,
+    targetNodeId: string,
+    targetPort: string | null
+  ): Promise<string> {
+    const response = await this.request({
+      method: "delete_edge",
+      params: {
+        source,
+        source_node_id: sourceNodeId,
+        source_port: sourcePort,
+        target_node_id: targetNodeId,
+        target_port: targetPort,
+      },
+    });
+    if (response.error) {
+      throw new Error(response.error.message);
+    }
+    const result = response.result as unknown;
+    if (!isObject(result) || typeof result["source"] !== "string") {
+      throw new Error("Invalid delete_edge response type");
+    }
+    return result["source"];
+  }
+
   public async stop(): Promise<void> {
     try {
       await this.request({ method: "shutdown" });

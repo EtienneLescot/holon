@@ -18,6 +18,7 @@ import ReactFlow, {
 import "reactflow/dist/style.css";
 
 import dagre from "dagre";
+import EdgeWithDelete from "./components/EdgeWithDelete";
 
 import { ToUiMessageSchema, type CoreEdge, type CoreNode } from "./protocol";
 import { postToExtension } from "./vscodeBridge";
@@ -28,14 +29,14 @@ import { NodeSearchModal } from "./NodeSearchModal";
 import { PortLibraryPanel } from "./components/PortLibraryPanel";
 import { EdgeInspector } from "./components/EdgeInspector";
 import { ChatNode } from "./components/ChatNode";
-import { 
-  useGraphStore, 
-  useUIStore, 
-  useExecutionStore, 
+import {
+  useGraphStore,
+  useUIStore,
+  useExecutionStore,
   useCredentialsStore,
   useNodeTypesStore,
   useMappingStore,
-  type AiStatus 
+  type AiStatus
 } from "./store";
 
 type UiNodeData = {
@@ -75,21 +76,21 @@ function toReactFlowNodes(
     const ports: PortSpec[] =
       n.ports && n.ports.length > 0
         ? n.ports.map((p) => {
-            const out: PortSpec = {
-              id: p.id,
-              direction: p.direction as "input" | "output",
-            };
-            if (typeof p.kind === "string") {
-              out.kind = p.kind as any;
-            }
-            if (typeof p.label === "string") {
-              out.label = p.label;
-            }
-            if (typeof p.multi === "boolean") {
-              out.multi = p.multi;
-            }
-            return out;
-          })
+          const out: PortSpec = {
+            id: p.id,
+            direction: p.direction as "input" | "output",
+          };
+          if (typeof p.kind === "string") {
+            out.kind = p.kind as any;
+          }
+          if (typeof p.label === "string") {
+            out.label = p.label;
+          }
+          if (typeof p.multi === "boolean") {
+            out.multi = p.multi;
+          }
+          return out;
+        })
         : inferPorts({ kind: n.kind, nodeType: n.nodeType ?? undefined });
     const summary = n.summary;
     const badges = n.badges;
@@ -126,17 +127,34 @@ function toReactFlowEdges(input: CoreEdge[]): Edge[] {
     targetHandle: e.targetPort ?? null,
     animated: false,
     ...(e.kind === "link" ? { style: { stroke: "rgba(110,168,255,0.4)" } } : {}),
+    type: "holonEdge",
+    data: {
+      source: e.source,
+      target: e.target,
+      sourcePort: e.sourcePort,
+      targetPort: e.targetPort,
+    }
   }));
+}
+
+function PortTooltip({ port }: { port: PortSpec }) {
+  return (
+    <div className={`portTooltip portTooltip-${port.direction === 'input' ? 'top' : 'bottom'}`}>
+      {port.id}
+      {port.label && port.label !== port.id && <span style={{ opacity: 0.7, marginLeft: 4 }}>({port.label})</span>}
+      {port.kind && <span className="portTooltip-kind">{port.kind}</span>}
+    </div>
+  );
 }
 
 function HolonNode(props: NodeProps<UiNodeData>): JSX.Element {
   const { data, selected } = props;
-  
+
   // If this is a ui.chat node, render ChatNode component
   if (data.nodeType === "ui.chat") {
     return <ChatNode id={data.nodeId} data={{ label: data.label, props: data.props || {} }} />;
   }
-  
+
   const status = data.aiStatus?.status ?? "idle";
   const canAiEdit = data.nodeId.startsWith("node:") || data.nodeId.startsWith("spec:");
   const canDescribe = data.nodeId.startsWith("node:") || data.nodeId.startsWith("spec:");
@@ -145,12 +163,13 @@ function HolonNode(props: NodeProps<UiNodeData>): JSX.Element {
     e.stopPropagation();
   };
 
-  const inputs = data.ports.filter((p) => p.direction === "input");
-  const outputs = data.ports.filter((p) => p.direction === "output");
+  const flowInput = data.ports.find((p) => p.direction === "input" && (p.kind === "data" || !p.kind || p.id === "input"));
+  const flowOutput = data.ports.find((p) => p.direction === "output" && (p.kind === "data" || !p.kind || p.id === "output"));
 
-  const baseTop = 40;
-  const step = 20;
-  
+  const configPorts = data.ports.filter((p) =>
+    p !== flowInput && p !== flowOutput
+  );
+
   const nodeClasses = [
     'holonNode',
     selected ? 'holonNode-selected' : '',
@@ -160,27 +179,35 @@ function HolonNode(props: NodeProps<UiNodeData>): JSX.Element {
   return (
     <div className={nodeClasses}>
       <div className="holonNodeInner">
-        {inputs.map((p, idx) => (
-          <Handle
-            key={`in:${p.id}`}
-            type="target"
-            position={HandlePosition.Left}
-            id={p.id}
-            className={`holonHandle holonHandle-${p.kind ?? "data"}`}
-            style={{ top: baseTop + idx * step }}
-          />
-        ))}
+        {/* Main Flow Input (Left Center) */}
+        {flowInput && (
+          <div style={{ position: 'absolute', left: '-6px', top: '50%', transform: 'translateY(-50%)', zIndex: 10 }}>
+            <Handle
+              type="target"
+              position={HandlePosition.Left}
+              id={flowInput.id}
+              className={`holonHandle holonHandle-${flowInput.kind ?? "data"} ${flowInput.multi ? 'holonHandle-multi' : ''}`}
+            />
+            <div className="group hidden hover:block">
+              <PortTooltip port={flowInput} />
+            </div>
+          </div>
+        )}
 
-        {outputs.map((p, idx) => (
-          <Handle
-            key={`out:${p.id}`}
-            type="source"
-            position={HandlePosition.Right}
-            id={p.id}
-            className={`holonHandle holonHandle-${p.kind ?? "data"}`}
-            style={{ top: baseTop + idx * step }}
-          />
-        ))}
+        {/* Main Flow Output (Right Center) */}
+        {flowOutput && (
+          <div style={{ position: 'absolute', right: '-6px', top: '50%', transform: 'translateY(-50%)', zIndex: 10 }}>
+            <Handle
+              type="source"
+              position={HandlePosition.Right}
+              id={flowOutput.id}
+              className={`holonHandle holonHandle-${flowOutput.kind ?? "data"} ${flowOutput.multi ? 'holonHandle-multi' : ''}`}
+            />
+            <div className="group hidden hover:block">
+              <PortTooltip port={flowOutput} />
+            </div>
+          </div>
+        )}
 
         <div className="holonNodeTop">
           <div>
@@ -230,6 +257,32 @@ function HolonNode(props: NodeProps<UiNodeData>): JSX.Element {
         </div>
         {data.aiStatus?.message ? <div className={`holonNodeStatus holonNodeStatus-${status}`}>{data.aiStatus.message}</div> : null}
         {data.summary ? <div className="holonNodeSummary">{data.summary}</div> : null}
+
+        {/* Config Ports (Bottom) */}
+        {configPorts.length > 0 && (
+          <div className="holonNodeConfigPorts" style={{ display: 'flex', gap: '8px', marginTop: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
+            {configPorts.map((p) => (
+              <div key={p.id} style={{ position: 'relative' }} className="group">
+                <div style={{ fontSize: '9px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)', marginBottom: '2px', textAlign: 'center' }}>
+                  {p.label || p.id}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'center' }}>
+                  <Handle
+                    type={p.direction === 'input' ? "target" : "source"}
+                    position={HandlePosition.Bottom}
+                    id={p.id}
+                    className={`holonHandle holonHandle-${p.kind ?? "data"} ${p.multi ? 'holonHandle-multi' : ''}`}
+                    style={{ position: 'relative', transform: 'none', left: 0, top: 0 }}
+                  />
+                </div>
+                {/* Tooltip on hover */}
+                <div style={{ opacity: 0, transition: 'opacity 0.2s', position: 'absolute', pointerEvents: 'none' }} className="group-hover:opacity-100">
+                  <PortTooltip port={p} />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -239,12 +292,13 @@ export default function App(): JSX.Element {
   const [nodes, setNodes, onNodesChange] = useNodesState<UiNodeData>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([] as Edge[]);
   const nodeTypes = useMemo(() => ({ holon: HolonNode }), []);
-  
+  const edgeTypes = useMemo(() => ({ holonEdge: EdgeWithDelete }), []);
+
   // Zustand stores
   const coreNodes = useGraphStore(s => s.nodes);
   const aiByNodeId = useGraphStore(s => s.aiStatusByNodeId);
   const { setGraph, setAiStatus } = useGraphStore(s => s.actions);
-  
+
   const selectedNodeId = useUIStore(s => s.selectedNodeId);
   const aiModalNodeId = useUIStore(s => s.aiModalNodeId);
   const aiInstruction = useUIStore(s => s.aiInstruction);
@@ -257,22 +311,22 @@ export default function App(): JSX.Element {
     closePromptModal: closePromptModalAction,
     openPromptModal,
   } = useUIStore(s => s.actions);
-  
+
   const executionOutput = useExecutionStore(s => s.output);
   const { setOutput: setExecutionOutput } = useExecutionStore(s => s.actions);
-  
+
   const credentialsIsOpen = useCredentialsStore(s => s.isModalOpen);
   const credentialsProvider = useCredentialsStore(s => s.currentProvider);
   const credentials = useCredentialsStore(s => s.credentials);
   const { setCredentials, openModal: openCredentialsModal, closeModal: closeCredentialsModal } = useCredentialsStore(s => s.actions);
-  
+
   const isNodeSearchOpen = useUIStore(s => s.isNodeSearchOpen);
   const { openNodeSearch, closeNodeSearch } = useUIStore(s => s.actions);
-  
+
   const { setNodeTypes } = useNodeTypesStore(s => s.actions);
-  
+
   const { isLibraryOpen, toggleLibrary, closeLibrary } = useMappingStore();
-  
+
   // Edge inspector state
   const [edgeInspector, setEdgeInspector] = useState<{
     edgeId: string;
@@ -282,10 +336,10 @@ export default function App(): JSX.Element {
     targetPort: string;
     position: { x: number; y: number };
   } | null>(null);
-  
+
   const aiTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const executionOutputRef = useRef<Record<string, any> | null>(null);
-  
+
   useEffect(() => {
     executionOutputRef.current = executionOutput;
   }, [executionOutput]);
@@ -344,7 +398,7 @@ export default function App(): JSX.Element {
   const onPatchNode = useCallback((nodeId: string, props: Record<string, any>) => {
     postToExtension({ type: "ui.node.patchRequest", nodeId, props });
   }, []);
-  
+
   const onRunWorkflow = useCallback(() => {
     // Find the workflow node name from selected node
     const workflowNode = coreNodes.find(n => n.id === selectedNodeId && n.kind === "workflow");
@@ -400,17 +454,17 @@ export default function App(): JSX.Element {
           setCredentials(provider, creds);
         });
       }
-      
+
       if (msg.type === "workflow.executionResult") {
         setExecutionOutput(msg.output);
       }
-      
+
       if (msg.type === "execution.output") {
         // eslint-disable-next-line no-console
         console.log("setting executionOutput:", msg.output);
         setExecutionOutput(msg.output);
       }
-      
+
       if (msg.type === "nodeTypes.update") {
         console.log("Received nodeTypes.update:", msg.nodeTypes);
         setNodeTypes(msg.nodeTypes as any);
@@ -425,7 +479,7 @@ export default function App(): JSX.Element {
       if (msg.type === "chat.event") {
         const { useChatStore } = await import("./store/chat.store");
         const { event, nodeId } = msg;
-        
+
         if (event.action === "clear_history") {
           useChatStore.getState().clearHistory(nodeId);
         } else if (event.action === "message_sent") {
@@ -581,16 +635,16 @@ export default function App(): JSX.Element {
           >
             Delete
           </button>
-          <button 
-            type="button" 
-            className="holonHeaderButton holonHeaderButtonPrimary" 
+          <button
+            type="button"
+            className="holonHeaderButton holonHeaderButtonPrimary"
             onClick={openNodeSearch}
           >
             + Add Node
           </button>
-          <button 
-            type="button" 
-            className="holonHeaderButton" 
+          <button
+            type="button"
+            className="holonHeaderButton"
             onClick={toggleLibrary}
             title="Open Port Library for manual port mapping"
           >
@@ -616,16 +670,17 @@ export default function App(): JSX.Element {
               selectNode(null);
               setEdgeInspector(null);
             }}
+
             onEdgeClick={(_event, edge) => {
               // Extract port info from edge id (format: "nodeId:portId")
               const [sourceNodeId, sourcePort] = edge.source.split(':');
               const [targetNodeId, targetPort] = edge.target.split(':');
-              
+
               // Position inspector near click
               const rect = (_event.target as HTMLElement)?.getBoundingClientRect();
               const x = rect ? rect.left + rect.width / 2 : 300;
               const y = rect ? rect.top + rect.height / 2 : 200;
-              
+
               setEdgeInspector({
                 edgeId: edge.id,
                 sourceNodeId: sourceNodeId || edge.source,
@@ -636,6 +691,7 @@ export default function App(): JSX.Element {
               });
             }}
             nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
             noDragClassName="nodrag"
             noPanClassName="nopan"
             deleteKeyCode={["Delete", "Backspace"]}

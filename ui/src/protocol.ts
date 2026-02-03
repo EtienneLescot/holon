@@ -208,6 +208,16 @@ export const UiEdgeCreatedSchema = z.object({
   }),
 });
 
+export const UiEdgeDeletedSchema = z.object({
+  type: z.literal("ui.edgeDeleted"),
+  edge: z.object({
+    source: z.string(),
+    target: z.string(),
+    sourcePort: z.string().nullable().optional(),
+    targetPort: z.string().nullable().optional(),
+  }),
+});
+
 export const UiNodeCreatedSchema = z.object({
   type: z.literal("ui.nodeCreated"),
   node: z.object({
@@ -287,6 +297,7 @@ export const ToExtensionMessageSchema = z.union([
   UiNodeDeleteRequestSchema,
   UiNodePatchRequestSchema,
   UiEdgeCreatedSchema,
+  UiEdgeDeletedSchema,
   UiNodeCreatedSchema,
   UiCredentialsRequestSchema,
   UiWorkflowRunSchema,

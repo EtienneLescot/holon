@@ -8,124 +8,128 @@ import { ChatHandler } from "./chatHandler";
 
 type WebviewToExtensionMessage =
   | {
-      type: "ui.ready";
-    }
+    type: "ui.ready";
+  }
   | {
-      type: "ui.nodeTypes.request";
-    }
+    type: "ui.nodeTypes.request";
+  }
   | {
-      type: "ui.nodesChanged";
-      nodes: Array<{ id: string; position: { x: number; y: number } }>;
-    }
+    type: "ui.nodesChanged";
+    nodes: Array<{ id: string; position: { x: number; y: number } }>;
+  }
   | {
-      type: "ui.edgeCreated";
-      edge: { source: string; target: string; sourcePort?: string | null; targetPort?: string | null };
-    }
+    type: "ui.edgeCreated";
+    edge: { source: string; target: string; sourcePort?: string | null; targetPort?: string | null };
+  }
   | {
-      type: "ui.nodeCreated";
-      node: {
-        id: string;
-        type: string;
-        label: string;
-        inputs: Array<{ id: string; kind?: PortKind | null; label?: string | null; multi?: boolean | null }>;
-        outputs: Array<{ id: string; kind?: PortKind | null; label?: string | null; multi?: boolean | null }>;
-        props?: Record<string, unknown> | null;
-      };
-      position?: { x: number; y: number } | null;
-    }
+    type: "ui.edgeDeleted";
+    edge: { source: string; target: string; sourcePort?: string | null; targetPort?: string | null };
+  }
   | {
-      type: "ui.node.aiRequest";
-      nodeId: string;
-      instruction: string;
-    }
-  | {
-      type: "ui.node.describeRequest";
-      nodeId: string;
-    }
-  | {
-      type: "ui.node.deleteRequest";
-      nodeId: string;
-    }
-  | {
-      type: "ui.node.patchRequest";
-      nodeId: string;
+    type: "ui.nodeCreated";
+    node: {
+      id: string;
+      type: string;
+      label: string;
+      inputs: Array<{ id: string; kind?: PortKind | null; label?: string | null; multi?: boolean | null }>;
+      outputs: Array<{ id: string; kind?: PortKind | null; label?: string | null; multi?: boolean | null }>;
       props?: Record<string, unknown> | null;
-      label?: string | null;
-    }
-  | {
-      type: "ui.workflow.run";
-      workflowName: string;
-    }
-  | {
-      type: "rpc.stop";
-    }
-  | {
-      type: "ui.chat.sendMessage";
-      nodeId: string;
-      envelope: any;
-    }
-  | {
-      type: "ui.chat.control";
-      nodeId: string;
-      action: string;
-      payload?: any;
     };
+    position?: { x: number; y: number } | null;
+  }
+  | {
+    type: "ui.node.aiRequest";
+    nodeId: string;
+    instruction: string;
+  }
+  | {
+    type: "ui.node.describeRequest";
+    nodeId: string;
+  }
+  | {
+    type: "ui.node.deleteRequest";
+    nodeId: string;
+  }
+  | {
+    type: "ui.node.patchRequest";
+    nodeId: string;
+    props?: Record<string, unknown> | null;
+    label?: string | null;
+  }
+  | {
+    type: "ui.workflow.run";
+    workflowName: string;
+  }
+  | {
+    type: "rpc.stop";
+  }
+  | {
+    type: "ui.chat.sendMessage";
+    nodeId: string;
+    envelope: any;
+  }
+  | {
+    type: "ui.chat.control";
+    nodeId: string;
+    action: string;
+    payload?: any;
+  };
 
 type ExtensionToWebviewMessage =
   | {
-      type: "graph.init";
-      nodes: Array<{
-        id: string;
-        name: string;
-        kind: "node" | "workflow" | "spec";
-        position?: { x: number; y: number } | null;
-        label?: string;
-        nodeType?: string;
-        summary?: string;
-        badges?: string[];
-        ports?: PortSpec[];
-      }>;
-      edges: Array<{ source: string; target: string; sourcePort?: string | null; targetPort?: string | null; kind?: "code" | "link" }>;
-    }
+    type: "graph.init";
+    nodes: Array<{
+      id: string;
+      name: string;
+      kind: "node" | "workflow" | "spec";
+      position?: { x: number; y: number } | null;
+      label?: string;
+      nodeType?: string;
+      summary?: string;
+      badges?: string[];
+      ports?: PortSpec[];
+    }>;
+    edges: Array<{ source: string; target: string; sourcePort?: string | null; targetPort?: string | null; kind?: "code" | "link" }>;
+  }
   | {
-      type: "graph.update";
-      nodes: Array<{
-        id: string;
-        name: string;
-        kind: "node" | "workflow" | "spec";
-        position?: { x: number; y: number } | null;
-        label?: string;
-        nodeType?: string;
-        summary?: string;
-        badges?: string[];
-        ports?: PortSpec[];
-      }>;
-      edges: Array<{ source: string; target: string; sourcePort?: string | null; targetPort?: string | null; kind?: "code" | "link" }>;
-    }
+    type: "graph.update";
+    nodes: Array<{
+      id: string;
+      name: string;
+      kind: "node" | "workflow" | "spec";
+      position?: { x: number; y: number } | null;
+      label?: string;
+      nodeType?: string;
+      summary?: string;
+      badges?: string[];
+      ports?: PortSpec[];
+    }>;
+    edges: Array<{ source: string; target: string; sourcePort?: string | null; targetPort?: string | null; kind?: "code" | "link" }>;
+  }
   | {
-      type: "graph.error";
-      error: string;
-    }
+    type: "graph.error";
+    error: string;
+  }
   | {
-      type: "ai.status";
-      nodeId: string;
-      status: "idle" | "working" | "error" | "done";
-      message?: string;
-    }
+    type: "ai.status";
+    nodeId: string;
+    status: "idle" | "working" | "error" | "done";
+    message?: string;
+  }
   | {
-      type: "execution.output";
-      output: Record<string, unknown>;
-    }
+    type: "execution.output";
+    output: Record<string, unknown>;
+  }
   | {
-      type: "nodeTypes.update";
-      nodeTypes: Array<{
-        type: string;
-        label: string;
-        category: string;
-        description?: string;
-        defaultProps?: Record<string, unknown>;
-      }>;
-    };
+    type: "nodeTypes.update";
+    nodeTypes: Array<{
+      type: string;
+      label: string;
+      category: string;
+      description?: string;
+      defaultProps?: Record<string, unknown>;
+    }>;
+  };
 
 export class HolonPanel {
   public static currentPanel: HolonPanel | undefined;
@@ -214,6 +218,9 @@ export class HolonPanel {
             return;
           case "ui.edgeCreated":
             await this.onUiEdgeCreated(message.edge);
+            return;
+          case "ui.edgeDeleted":
+            await this.onUiEdgeDeleted(message.edge);
             return;
           case "ui.nodeCreated":
             await this.onUiNodeCreated(message.node, message.position ?? null);
@@ -384,6 +391,52 @@ export class HolonPanel {
       return;
     }
     const updated = await rpc.addLink(source, workflowName, edge.source, sourcePort, edge.target, targetPort);
+
+    const fullRange = new vscode.Range(doc.positionAt(0), doc.positionAt(source.length));
+    const ok = await editor.edit((editBuilder) => {
+      editBuilder.replace(fullRange, updated);
+    });
+    if (!ok) {
+      throw new Error("Editor rejected the edit");
+    }
+  }
+
+  private async onUiEdgeDeleted(edge: {
+    source: string;
+    target: string;
+    sourcePort?: string | null;
+    targetPort?: string | null;
+  }): Promise<void> {
+    this.output.appendLine(`ui.edgeDeleted: ${edge.source} -> ${edge.target}`);
+
+    if (!this.lastHolonDocumentUri) {
+      const active = vscode.window.activeTextEditor?.document;
+      if (active && isHolonDocument(active)) {
+        this.lastHolonDocumentUri = active.uri;
+      }
+    }
+    if (!this.lastHolonDocumentUri) {
+      this.output.appendLine("edge delete warning: no holon document to persist for");
+      return;
+    }
+
+    const targetUri = this.lastHolonDocumentUri;
+    const doc = await vscode.workspace.openTextDocument(targetUri);
+    const editor =
+      vscode.window.activeTextEditor?.document.uri.toString() === targetUri.toString()
+        ? vscode.window.activeTextEditor
+        : await vscode.window.showTextDocument(doc, { preview: false, preserveFocus: true });
+
+    const source = doc.getText();
+    const rpc = await this.ensureRpc();
+
+    const updated = await rpc.deleteEdge(
+      source,
+      edge.source,
+      edge.sourcePort ?? null,
+      edge.target,
+      edge.targetPort ?? null
+    );
 
     const fullRange = new vscode.Range(doc.positionAt(0), doc.positionAt(source.length));
     const ok = await editor.edit((editBuilder) => {
@@ -772,23 +825,23 @@ export class HolonPanel {
 
   private async onChatSendMessage(nodeId: string, envelope: any): Promise<void> {
     this.output.appendLine(`ui.chat.sendMessage: ${nodeId}`);
-    
+
     if (!this.chatHandler) {
       const rpc = await this.ensureRpc();
       this.chatHandler = new ChatHandler(rpc, (msg) => this.postMessage(msg as any));
     }
-    
+
     await this.chatHandler.handleSendMessage(nodeId, envelope);
   }
 
   private async onChatControl(nodeId: string, action: string, payload?: any): Promise<void> {
     this.output.appendLine(`ui.chat.control: ${nodeId} action=${action}`);
-    
+
     if (!this.chatHandler) {
       const rpc = await this.ensureRpc();
       this.chatHandler = new ChatHandler(rpc, (msg) => this.postMessage(msg as any));
     }
-    
+
     await this.chatHandler.handleControlCommand(nodeId, action, payload);
   }
 

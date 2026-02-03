@@ -22,6 +22,7 @@ from holon.services.graph_parser import parse_graph
 from holon.services.patcher import add_link as add_link_source
 from holon.services.patcher import add_spec_node as add_spec_node_source
 from holon.services.patcher import delete_node as delete_node_source
+from holon.services.patcher import delete_edge as delete_edge_source
 from holon.services.patcher import patch_node as patch_node_source
 from holon.services.patcher import patch_spec_node as patch_spec_node_source
 from holon.services.patcher import rename_node as rename_node_source
@@ -107,7 +108,17 @@ class _ExecuteWorkflowParams(BaseModel):
     file_path: str
     workflow_name: str
 
+class _ExecuteWorkflowParams(BaseModel):
+    file_path: str
+    workflow_name: str
 
+
+class _DeleteEdgeParams(BaseModel):
+    source: str
+    source_node_id: str
+    source_port: str | None = None
+    target_node_id: str
+    target_port: str | None = None
 def main() -> None:
     """Run the RPC loop reading stdin and writing stdout."""
 
@@ -241,6 +252,20 @@ def handle_request(request: Any) -> dict[str, Any]:
             updated = delete_node_source(
                 params.source,
                 node_id=params.node_id,
+            )
+            return {"id": request_id, "result": {"source": updated}}
+        except Exception as exc:  # noqa: BLE001 - return structured RPC errors
+            return {"id": request_id, "error": {"message": _format_error(exc)}}
+    
+    if method == "delete_edge":
+        try:
+            params = _parse_params(request.get("params"), _DeleteEdgeParams)
+            updated = delete_edge_source(
+                params.source,
+                source_node_id=params.source_node_id,
+                source_port=params.source_port,
+                target_node_id=params.target_node_id,
+                target_port=params.target_port,
             )
             return {"id": request_id, "result": {"source": updated}}
         except Exception as exc:  # noqa: BLE001 - return structured RPC errors

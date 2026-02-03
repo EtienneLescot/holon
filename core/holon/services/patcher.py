@@ -230,6 +230,37 @@ def delete_node(source_code: str, *, node_id: str) -> str:
     return updated.code
 
 
+def delete_edge(
+    source_code: str,
+    *,
+    source_node_id: str,
+    source_port: str | None,
+    target_node_id: str,
+    target_port: str | None,
+) -> str:
+    """Delete an edge (link or port_map) from code.
+
+    Removes:
+    - Explicit `link(...)` calls inside workflows matching the connection.
+    - Classes decorated with `@link` or `@port_map` matching the connection.
+    """
+    module = cst.parse_module(source_code)
+    wrapper = MetadataWrapper(module)
+    transformer = _DeleteEdgeTransformer(
+        source_node_id=source_node_id,
+        source_port=source_port,
+        target_node_id=target_node_id,
+        target_port=target_port,
+    )
+    updated = wrapper.visit(transformer)
+    if not transformer.deleted_any:
+        # It's possible the edge was implied or already gone?
+        # But usually we want to know if we failed.
+        # For now, let's raise if we didn't find anything.
+        raise ValueError("edge not found")
+    return updated.code
+
+
 def _parse_single_function(code: str) -> cst.FunctionDef:
     module = cst.parse_module(code)
 
@@ -937,3 +968,116 @@ def _is_within_workflow(transformer: cst.CSTTransformer, node: cst.CSTNode) -> b
         current = parent
 
     return False
+
+
+@dataclass(slots=True)
+class _DeleteEdgeTransformer(cst.CSTTransformer):
+    source_node_id: str
+    source_port: str | None
+    target_node_id: str
+    target_port: str | None
+    deleted_any: bool = False
+
+    def leave_SimpleStatementLine(
+        self, original_node: cst.SimpleStatementLine, updated_node: cst.SimpleStatementLine
+    ) -> cst.RemovalSentinel | cst.SimpleStatementLine:
+        # Check for link(...)
+        if len(updated_node.body) == 1:
+            expr = updated_node.body[0]
+            if isinstance(expr, cst.Expr) and isinstance(expr.value, cst.Call):
+                call = expr.value
+                if _call_matches(call.func, "link"):
+                    if self._check_link_args(call):
+                        self.deleted_any = True
+                        return cst.RemoveFromParent()
+        return updated_node
+
+    def leave_ClassDef(
+        self, original_node: cst.ClassDef, updated_node: cst.ClassDef
+    ) -> cst.RemovalSentinel | cst.ClassDef:
+        # Check for @link or @port_map
+        is_link = False
+        for dec in original_node.decorators:
+            if _decorator_matches(dec.decorator, "link") or _decorator_matches(dec.decorator, "port_map"):
+                is_link = True
+                break
+        
+        if not is_link:
+            return updated_node
+
+        # Check attributes in body
+        # source = ...
+        # target = ...
+        src_match = False
+        tgt_match = False
+
+        for stmt in original_node.body.body:
+            if isinstance(stmt, cst.SimpleStatementLine) and len(stmt.body) == 1:
+                assign = stmt.body[0]
+                if isinstance(assign, cst.Assign) and len(assign.targets) == 1:
+                    target_name = assign.targets[0].target
+                    if isinstance(target_name, cst.Name):
+                        if target_name.value == "source":
+                            if self._matches_endpoint(assign.value, self.source_node_id, self.source_port):
+                                src_match = True
+                        elif target_name.value == "target":
+                            if self._matches_endpoint(assign.value, self.target_node_id, self.target_port):
+                                tgt_match = True
+        
+        if src_match and tgt_match:
+            self.deleted_any = True
+            return cst.RemoveFromParent()
+        
+        return updated_node
+
+    def _check_link_args(self, call: cst.Call) -> bool:
+        # Helper to get string value
+        def get_val(idx: int, name: str) -> str | None:
+             # Try positional
+             if idx < len(call.args) and call.args[idx].keyword is None:
+                 return _string_expr_value(call.args[idx].value)
+             # Try keyword
+             for arg in call.args:
+                 if arg.keyword and arg.keyword.value == name:
+                     return _string_expr_value(arg.value)
+             return None
+
+        s_id = get_val(0, "source_node_id")
+        s_port = get_val(1, "source_port")
+        t_id = get_val(2, "target_node_id")
+        t_port = get_val(3, "target_port")
+        
+        # Simple string equality
+        if s_id != self.source_node_id: return False
+        if s_port != self.source_port: return False
+        if t_id != self.target_node_id: return False
+        if t_port != self.target_port: return False
+        
+        return True
+
+    def _matches_endpoint(self, value: cst.BaseExpression, node_id: str, port: str | None) -> bool:
+        # Expecting tuple: (Node, "port") or ("node_id", "port")
+        if not isinstance(value, cst.Tuple) or len(value.elements) != 2:
+            return False
+        
+        node_expr = value.elements[0].value
+        port_expr = value.elements[1].value
+
+        # Check port
+        p_val = _string_expr_value(port_expr)
+        if p_val != port:
+            return False
+
+        # Check node
+        # Case 1: String literal
+        n_val = _string_expr_value(node_expr)
+        if n_val == node_id:
+            return True
+        
+        # Case 2: Class name reference
+        if isinstance(node_expr, cst.Name):
+            # If node_id is "node:ChatNode" and class is ChatNode, match.
+            if node_id.startswith("node:") and node_id[5:] == node_expr.value:
+                return True
+        
+        return False
