@@ -9,6 +9,7 @@
  */
 
 import { useState, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { useGraphStore } from '../store';
 
 interface DataField {
@@ -137,10 +138,10 @@ export function DataBrowserModal({ targetNodeId, onSelect, onClose }: DataBrowse
     onClose();
   };
 
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
+  return createPortal(
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[10000]" onClick={onClose}>
       <div
-        className="bg-white dark:bg-gray-800 rounded-lg shadow-2xl w-[600px] max-h-[70vh] flex flex-col"
+        className="bg-white dark:bg-gray-800 rounded-lg shadow-2xl w-[600px] max-w-[90vw] max-h-[80vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -250,6 +251,7 @@ export function DataBrowserModal({ targetNodeId, onSelect, onClose }: DataBrowse
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
