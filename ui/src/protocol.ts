@@ -5,7 +5,7 @@ export const PositionSchema = z.object({
   y: z.number(),
 });
 
-export const HolonKindSchema = z.union([z.literal("node"), z.literal("workflow"), z.literal("spec")]);
+export const HolonKindSchema = z.union([z.literal("node"), z.literal("workflow")]);
 
 export const PortDirectionSchema = z.union([z.literal("input"), z.literal("output")]);
 
@@ -205,6 +205,33 @@ export const UiWorkflowRunSchema = z.object({
   workflowName: z.string(),
 });
 
+export const UiNodeTypesRequestSchema = z.object({
+  type: z.literal("ui.nodeTypes.request"),
+});
+
+export const UiMappingInsertCodeSchema = z.object({
+  type: z.literal("ui.mapping.insertCode"),
+  payload: z.object({
+    source: z.any(),
+    target: z.any(),
+    config: z.any(),
+  }),
+});
+
+export const UiMappingViewCodeSchema = z.object({
+  type: z.literal("ui.mapping.viewCode"),
+  payload: z.object({
+    mappingId: z.string(),
+  }),
+});
+
+export const UiMappingDeleteSchema = z.object({
+  type: z.literal("ui.mapping.delete"),
+  payload: z.object({
+    mappingId: z.string(),
+  }),
+});
+
 export const ToExtensionMessageSchema = z.union([
   UiReadySchema,
   UiNodesChangedSchema,
@@ -216,5 +243,9 @@ export const ToExtensionMessageSchema = z.union([
   UiNodeCreatedSchema,
   UiCredentialsRequestSchema,
   UiWorkflowRunSchema,
+  UiNodeTypesRequestSchema,
+  UiMappingInsertCodeSchema,
+  UiMappingViewCodeSchema,
+  UiMappingDeleteSchema,
 ]);
 export type ToExtensionMessage = z.infer<typeof ToExtensionMessageSchema>;

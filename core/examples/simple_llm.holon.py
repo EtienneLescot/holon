@@ -1,30 +1,21 @@
 from __future__ import annotations
 
-from holon import node, workflow, link, spec
-spec("spec:llm.model:108c365b-01c7-4ff3-bb36-1d0c0739c66f", type = "llm.model", label = "LLM Model", props = {"model_name": "gpt-4o", "temperature": 0.7})
+from holon import node, workflow, link
 
-# Simple LLM Model spec
-spec(
-    "spec:llm.model:simple",
-    type="llm.model",
-    label="GPT-4o",
-    props={
-        "provider": "openai",
-        "model_name": "gpt-4o",
-        "temperature": 0.7
-    }
-)
+# Simple LLM Model
+@node(type="llm.model", id="node:llm_model:simple")
+class GPT4o:
+    """GPT-4o language model."""
+    provider = "openai"
+    model_name = "gpt-4o"
+    temperature = 0.7
 
-# Simple Agent spec
-spec(
-    "spec:agent.simple:chat",
-    type="langchain.agent",
-    label="Simple Chat Agent",
-    props={
-        "system_prompt": "You are a helpful assistant.",
-        "user_prompt": "Tell me a short joke about robots."
-    }
-)
+# Simple Agent
+@node(type="langchain.agent", id="node:agent:chat")
+class SimpleChatAgent:
+    """Simple chat agent."""
+    system_prompt = "You are a helpful assistant."
+    user_prompt = "Tell me a short joke about robots."
 
 
 @workflow

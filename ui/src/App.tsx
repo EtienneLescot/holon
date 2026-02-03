@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactFlow, {
   Background,
   Controls,
@@ -25,12 +25,15 @@ import { inferPorts, type PortSpec } from "./ports";
 import { ConfigPanel } from "./ConfigPanel";
 import { CredentialsModal } from "./CredentialsModal";
 import { NodeSearchModal } from "./NodeSearchModal";
+import { PortLibraryPanel } from "./components/PortLibraryPanel";
+import { EdgeInspector } from "./components/EdgeInspector";
 import { 
   useGraphStore, 
   useUIStore, 
   useExecutionStore, 
   useCredentialsStore,
   useNodeTypesStore,
+  useMappingStore,
   type AiStatus 
 } from "./store";
 
@@ -38,7 +41,7 @@ type UiNodeData = {
   label: string;
   nodeId: string;
   name: string;
-  kind: "node" | "workflow" | "spec";
+  kind: "node" | "workflow";
   nodeType?: string;
   props?: Record<string, unknown>;
   ports: PortSpec[];
@@ -260,6 +263,18 @@ export default function App(): JSX.Element {
   const { openNodeSearch, closeNodeSearch } = useUIStore(s => s.actions);
   
   const { setNodeTypes } = useNodeTypesStore(s => s.actions);
+  
+  const { isLibraryOpen, toggleLibrary, closeLibrary } = useMappingStore();
+  
+  // Edge inspector state
+  const [edgeInspector, setEdgeInspector] = useState<{
+    edgeId: string;
+    sourceNodeId: string;
+    targetNodeId: string;
+    sourcePort: string;
+    targetPort: string;
+    position: { x: number; y: number };
+  } | null>(null);
   
   const aiTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const executionOutputRef = useRef<Record<string, any> | null>(null);
@@ -546,6 +561,14 @@ export default function App(): JSX.Element {
           >
             + Add Node
           </button>
+          <button 
+            type="button" 
+            className="holonHeaderButton" 
+            onClick={toggleLibrary}
+            title="Open Port Library for manual port mapping"
+          >
+            🔌 Port Library
+          </button>
           <button type="button" className="holonHeaderButton" onClick={onAutoLayout} disabled={nodes.length === 0}>
             Auto layout
           </button>
@@ -562,7 +585,29 @@ export default function App(): JSX.Element {
             onConnect={onConnect}
             onSelectionChange={onSelectionChange}
             onNodeClick={(_e, n) => selectNode(n.id)}
-            onPaneClick={() => selectNode(null)}
+            onPaneClick={() => {
+              selectNode(null);
+              setEdgeInspector(null);
+            }}
+            onEdgeClick={(_event, edge) => {
+              // Extract port info from edge id (format: "nodeId:portId")
+              const [sourceNodeId, sourcePort] = edge.source.split(':');
+              const [targetNodeId, targetPort] = edge.target.split(':');
+              
+              // Position inspector near click
+              const rect = (_event.target as HTMLElement)?.getBoundingClientRect();
+              const x = rect ? rect.left + rect.width / 2 : 300;
+              const y = rect ? rect.top + rect.height / 2 : 200;
+              
+              setEdgeInspector({
+                edgeId: edge.id,
+                sourceNodeId: sourceNodeId || edge.source,
+                targetNodeId: targetNodeId || edge.target,
+                sourcePort: sourcePort || 'output',
+                targetPort: targetPort || 'input',
+                position: { x, y },
+              });
+            }}
             nodeTypes={nodeTypes}
             noDragClassName="nodrag"
             noPanClassName="nopan"
@@ -671,6 +716,26 @@ export default function App(): JSX.Element {
       )}
 
       <NodeSearchModal isOpen={isNodeSearchOpen} onClose={closeNodeSearch} />
+
+      {isLibraryOpen && (
+        <PortLibraryPanel onClose={closeLibrary} />
+      )}
+
+      {edgeInspector && (
+        <EdgeInspector
+          edgeId={edgeInspector.edgeId}
+          sourceNodeId={edgeInspector.sourceNodeId}
+          targetNodeId={edgeInspector.targetNodeId}
+          sourcePort={edgeInspector.sourcePort}
+          targetPort={edgeInspector.targetPort}
+          position={edgeInspector.position}
+          onClose={() => setEdgeInspector(null)}
+          onEdit={() => {
+            // TODO: Open MappingEditorModal in edit mode
+            setEdgeInspector(null);
+          }}
+        />
+      )}
     </div>
   );
 }

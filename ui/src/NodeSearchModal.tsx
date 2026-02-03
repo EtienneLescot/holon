@@ -92,11 +92,11 @@ export function NodeSearchModal({ isOpen, onClose }: NodeSearchModalProps): JSX.
       return `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;
     };
     
-    // Send node creation message
+    // Send node creation message - generates @node class with type
     postToExtension({
       type: "ui.nodeCreated",
       node: {
-        id: `spec:${nodeType.type}:${randomId()}`,
+        id: `node:${nodeType.type.replace(/\./g, '_')}:${randomId()}`,
         type: nodeType.type,
         label: nodeType.label,
         inputs: [],

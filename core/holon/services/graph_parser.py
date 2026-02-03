@@ -16,7 +16,7 @@ from dataclasses import dataclass
 
 import libcst as cst
 
-from holon.domain.models import Edge, Graph, Node
+from holon.domain.models import Edge, Graph, Node, PortMapping
 
 
 def parse_graph(source_code: str) -> Graph:
@@ -39,6 +39,9 @@ def parse_graph(source_code: str) -> Graph:
 
     spec_collector = _SpecNodeCollector()
     module.visit(spec_collector)
+    
+    class_node_collector = _NodeClassCollector()
+    module.visit(class_node_collector)
 
     node_names = {n.name for n in node_collector.nodes if n.kind == "node"}
 
@@ -49,9 +52,29 @@ def parse_graph(source_code: str) -> Graph:
     module.visit(link_collector)
 
     return Graph(
-        nodes=[*node_collector.nodes, *spec_collector.nodes],
+        nodes=[*node_collector.nodes, *spec_collector.nodes, *class_node_collector.nodes],
         edges=[*edge_collector.edges, *link_collector.edges],
     )
+
+
+def parse_port_maps(source_code: str) -> list[PortMapping]:
+    """Parse @port_map declarations from source code.
+    
+    Args:
+        source_code: Python source code containing @port_map decorators
+        
+    Returns:
+        List of PortMapping objects extracted from the code
+        
+    Raises:
+        libcst.ParserSyntaxError: If the source code is not valid Python.
+    """
+    module = cst.parse_module(source_code)
+    
+    mapping_collector = _PortMapCollector()
+    module.visit(mapping_collector)
+    
+    return mapping_collector.mappings
 
 
 @dataclass(slots=True)
@@ -158,6 +181,116 @@ class _SpecNodeCollector(cst.CSTVisitor):
                 continue
 
             self.nodes.append(spec_node)
+
+
+@dataclass(slots=True)
+class _NodeClassCollector(cst.CSTVisitor):
+    """Collect nodes defined as @node decorated classes."""
+
+    nodes: list[Node]
+
+    def __init__(self) -> None:
+        self.nodes = []
+
+    def visit_ClassDef(self, node: cst.ClassDef) -> None:
+        """Extract @node(type=..., id=...) class definitions."""
+        # Check if class has @node decorator
+        node_decorator = None
+        for dec in node.decorators:
+            if _decorator_matches(dec.decorator, "node"):
+                node_decorator = dec.decorator
+                break
+        
+        if node_decorator is None:
+            return None
+        
+        # Extract type and id from decorator arguments
+        if not isinstance(node_decorator, cst.Call):
+            return None
+        
+        node_type: str | None = None
+        node_id: str | None = None
+        
+        for arg in node_decorator.args:
+            if arg.keyword is None:
+                continue
+            k = arg.keyword.value
+            if k == "type":
+                node_type = _string_expr_value(arg.value)
+            if k == "id":
+                node_id = _string_expr_value(arg.value)
+        
+        if node_id is None or node_type is None:
+            return None
+        
+        # Extract class attributes as props
+        props = self._extract_class_props(node)
+        
+        # Extract label from docstring
+        label: str | None = None
+        for stmt in node.body.body:
+            if isinstance(stmt, cst.SimpleStatementLine) and len(stmt.body) == 1:
+                inner = stmt.body[0]
+                if isinstance(inner, cst.Expr) and isinstance(inner.value, cst.SimpleString):
+                    # First string is docstring
+                    label = _string_expr_value(inner.value)
+                    break
+        
+        self.nodes.append(
+            Node(
+                id=node_id,
+                name=node.name.value,
+                kind="node",
+                node_type=node_type,
+                label=label,
+                props=props or None,
+                position=None,
+            )
+        )
+        return None
+    
+    def _extract_class_props(self, node: cst.ClassDef) -> dict[str, object] | None:
+        """Extract class-level attributes as props dictionary."""
+        props: dict[str, object] = {}
+        
+        for stmt in node.body.body:
+            if not isinstance(stmt, cst.SimpleStatementLine):
+                continue
+            if len(stmt.body) != 1:
+                continue
+            
+            inner = stmt.body[0]
+            
+            # Skip docstrings
+            if isinstance(inner, cst.Expr) and isinstance(inner.value, cst.SimpleString):
+                continue
+            
+            # Handle simple assignment: x = value
+            if isinstance(inner, cst.Assign):
+                if len(inner.targets) != 1:
+                    continue
+                target = inner.targets[0].target
+                if not isinstance(target, cst.Name):
+                    continue
+                
+                key = target.value
+                value = _jsonish_expr_value(inner.value)
+                if value is not None:
+                    props[key] = value
+            
+            # Handle annotated assignment: x: type = value
+            elif isinstance(inner, cst.AnnAssign):
+                if not isinstance(inner.target, cst.Name):
+                    continue
+                if inner.value is None:
+                    continue
+                
+                key = inner.target.value
+                value = _jsonish_expr_value(inner.value)
+                if value is not None:
+                    props[key] = value
+        
+        return props if props else None
 
 
 @dataclass(slots=True)
@@ -324,6 +457,12 @@ def _string_expr_value(expr: cst.BaseExpression) -> str | None:
     return None
 
 
+def _jsonish_expr_value(expr: cst.BaseExpression) -> object | None:
+    """Extract a JSON-compatible value from an expression, or None if not JSON-compatible."""
+    result = _jsonish_value(expr)
+    return None if result is _NOT_JSONISH else result
+
+
 def _jsonish_dict_literal(expr: cst.BaseExpression) -> dict[str, object] | None:
     if isinstance(expr, cst.Name) and expr.value == "None":
         return None
@@ -390,3 +529,150 @@ def _jsonish_value(expr: cst.BaseExpression) -> object | _NotJsonish:
         d = _jsonish_dict_literal(expr)
         return _NOT_JSONISH if d is None else d
     return _NOT_JSONISH
+
+
+@dataclass(slots=True)
+class _PortMapCollector(cst.CSTVisitor):
+    """Collect @port_map declarations from workflow functions."""
+    
+    mappings: list[PortMapping]
+    _workflow_stack: list[str]
+    
+    def __init__(self) -> None:
+        self.mappings = []
+        self._workflow_stack = []
+    
+    def visit_FunctionDef(self, node: cst.FunctionDef) -> bool | None:
+        """Track workflow function context."""
+        if self._workflow_stack:
+            return False
+        
+        kind = _extract_holon_kind(node)
+        if kind != "workflow":
+            return True
+        
+        self._workflow_stack.append(node.name.value)
+        return True
+    
+    def leave_FunctionDef(self, original_node: cst.FunctionDef) -> None:
+        """Exit workflow function context."""
+        if self._workflow_stack and self._workflow_stack[-1] == original_node.name.value:
+            self._workflow_stack.pop()
+    
+    def visit_ClassDef(self, node: cst.ClassDef) -> None:
+        """Look for classes decorated with @port_map."""
+        if not self._workflow_stack:
+            return None
+        
+        # Check if this class has @port_map decorator
+        if not any(_decorator_matches(d.decorator, "port_map") for d in node.decorators):
+            return None
+        
+        # Extract class attributes: source, target, transform, target_field, when, on_error
+        attrs = self._extract_class_attributes(node)
+        
+        if "source" not in attrs or "target" not in attrs:
+            return None  # Invalid mapping, skip
+        
+        # Parse source and target tuples
+        source = attrs.get("source")
+        target = attrs.get("target")
+        
+        if not isinstance(source, tuple) or len(source) != 2:
+            return None
+        if not isinstance(target, tuple) or len(target) != 2:
+            return None
+        
+        source_node, source_port = source
+        target_node, target_port = target
+        
+        # Create PortMapping
+        mapping = PortMapping(
+            source_node=str(source_node),
+            source_port=str(source_port),
+            target_node=str(target_node),
+            target_port=str(target_port),
+            transform=attrs.get("transform"),
+            target_field=attrs.get("target_field"),
+            when=attrs.get("when"),
+            on_error=attrs.get("on_error", "stop")
+        )
+        
+        self.mappings.append(mapping)
+        return None
+    
+    def _extract_class_attributes(self, node: cst.ClassDef) -> dict[str, object]:
+        """Extract class-level attributes as a dictionary."""
+        attrs: dict[str, object] = {}
+        
+        for stmt in node.body.body:
+            if not isinstance(stmt, cst.SimpleStatementLine):
+                continue
+            if len(stmt.body) != 1:
+                continue
+            
+            inner = stmt.body[0]
+            if not isinstance(inner, cst.AnnAssign) and not isinstance(inner, cst.Assign):
+                continue
+            
+            # Handle both `x = value` and `x: type = value`
+            if isinstance(inner, cst.AnnAssign):
+                if not isinstance(inner.target, cst.Name):
+                    continue
+                attr_name = inner.target.value
+                attr_value = inner.value
+            elif isinstance(inner, cst.Assign):
+                if len(inner.targets) != 1:
+                    continue
+                target = inner.targets[0].target
+                if not isinstance(target, cst.Name):
+                    continue
+                attr_name = target.value
+                attr_value = inner.value
+            else:
+                continue
+            
+            if attr_value is None:
+                continue
+            
+            # Parse the value
+            parsed = self._parse_attribute_value(attr_value)
+            if parsed is not None:
+                attrs[attr_name] = parsed
+        
+        return attrs
+    
+    def _parse_attribute_value(self, expr: cst.BaseExpression) -> object | None:
+        """Parse an attribute value (string, tuple, etc.)."""
+        # Handle strings
+        if isinstance(expr, cst.SimpleString):
+            try:
+                return expr.evaluated_value
+            except Exception:
+                return None
+        
+        # Handle tuples: (NodeRef, "port")
+        if isinstance(expr, cst.Tuple):
+            elements = []
+            for el in expr.elements:
+                # First element is typically a Name (node reference)
+                if isinstance(el.value, cst.Name):
+                    elements.append(el.value.value)
+                # Second element is a string (port name)
+                elif isinstance(el.value, cst.SimpleString):
+                    try:
+                        elements.append(el.value.evaluated_value)
+                    except Exception:
+                        return None
+                else:
+                    return None
+            return tuple(elements) if len(elements) == 2 else None
+        
+        # Handle Names (for on_error values like "stop")
+        if isinstance(expr, cst.Name):
+            return expr.value
+        
+        # Try JSONish for other types
+        val = _jsonish_value(expr)
+        return None if val is _NOT_JSONISH else val
+

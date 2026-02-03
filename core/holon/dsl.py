@@ -337,3 +337,63 @@ def link(
 
     return decorator
 
+
+def port_map(cls: type[Any], /) -> type[Any]:
+    """Declare a port mapping with optional data transformation.
+    
+    Port mappings define how data should be extracted, transformed, and routed
+    from a source port to a target port using the DataEnvelope transport format.
+    
+    Usage::
+        @port_map
+        class _:
+            source = (ChatNode, "out.message")
+            target = (AgentNode, "in.prompt")
+            transform = "$.content"       # JSONPath to extract content field
+            target_field = "user"         # Inject into prompt.user
+            on_error = "stop"             # Error handling: "stop" | "skip" | "pass"
+    
+    Attributes:
+        source (tuple): Source node reference and port name
+        target (tuple): Target node reference and port name
+        transform (str | None): Transformation expression (JSONPath, template, or lambda)
+        target_field (str | None): Target field for nested injection
+        when (str | None): Conditional filter expression (optional)
+        on_error (str): Error handling behavior - "stop" (default), "skip", or "pass"
+    
+    Supported transform languages:
+        - JSONPath: "$.content", "$.metadata.role"
+        - Templates: "User: {{content}}", "{{metadata.role}}: {{content}}"
+        - Python lambda: "lambda env: env.content.upper()"
+    
+    Example - Extract message content::
+        @port_map
+        class _:
+            source = (ChatNode, "out.message")
+            target = (AgentNode, "in.prompt")
+            transform = "$.content"
+            target_field = "user"
+    
+    Example - Template interpolation::
+        @port_map
+        class _:
+            source = (ChatNode, "out.message")
+            target = (DisplayNode, "in.text")
+            transform = "{{metadata.role}}: {{content}}"
+    
+    Example - Python transformation::
+        @port_map
+        class _:
+            source = (AgentNode, "out.response")
+            target = (ChatNode, "in.message")
+            transform = "lambda env: DataEnvelope(type='message', content=env.content, metadata={'role': 'assistant'})"
+    
+    Args:
+        cls: Class with mapping attributes (typically an anonymous `class _:`)
+    
+    Returns:
+        The decorated class with mapping metadata attached
+    """
+    return _attach_metadata(cls, kind="port_map")
+
+

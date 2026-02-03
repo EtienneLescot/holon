@@ -6,9 +6,10 @@ import sys
 from dataclasses import dataclass, field
 from typing import Any
 
-from holon.domain.models import Graph, Node, Edge
+from holon.domain.models import Graph, Node, Edge, DataEnvelope
 from holon.execution.ports import PortRegistry
 from holon.execution.resolver import SpecResolver
+from holon.execution.mapper import PortMapper
 
 
 @dataclass
@@ -32,10 +33,11 @@ class ExecutionEngine:
     3. Builds dependency graph from port connections
     4. Executes nodes in topological order
     5. Passes data through ports (input, llm, memory, tools → output)
+    6. Applies port mappings and transformations
     """
     
     def __init__(self) -> None:
-        pass
+        self.mapper = PortMapper()
     
     async def execute_graph(self, ctx: ExecutionContext) -> Any:
         """Execute a workflow graph.
@@ -180,8 +182,13 @@ class ExecutionEngine:
                 continue
             
             # Get inputs from connected ports
-            inputs = ctx.port_registry.get_inputs_for_node(node_id)
-            sys.stderr.write(f"[ENGINE] Node {node_id} inputs: {list(inputs.keys())}\n")
+            raw_inputs = ctx.port_registry.get_inputs_for_node(node_id)
+            sys.stderr.write(f"[ENGINE] Node {node_id} raw inputs: {list(raw_inputs.keys())}\n")
+            sys.stderr.flush()
+            
+            # Apply port mappings (transformations)
+            mapped_inputs = self._apply_port_mappings(ctx, node_id, raw_inputs)
+            sys.stderr.write(f"[ENGINE] Node {node_id} mapped inputs: {list(mapped_inputs.keys())}\n")
             sys.stderr.flush()
             
             try:
@@ -189,17 +196,27 @@ class ExecutionEngine:
                 # Special case: langchain.agent spec nodes need execution
                 if node.kind == "spec" and node.node_type == "langchain.agent":
                     # Execute agent with port inputs
-                    output = await self._execute_agent_node(ctx, node, inputs)
+                    output = await self._execute_agent_node(ctx, node, mapped_inputs)
                 elif node.kind == "spec":
                     # Other spec nodes already resolved, get their output
                     output = ctx.port_registry.get_value(node_id, "output")
                 else:
                     # Execute function/workflow node
-                    output = await self._execute_node(ctx, node, inputs)
+                    output = await self._execute_node(ctx, node, mapped_inputs)
+                
+                # Wrap output in DataEnvelope if not already wrapped
+                if not isinstance(output, DataEnvelope):
+                    output_envelope = DataEnvelope(
+                        type="data",
+                        content=output,
+                        origin={"nodeId": node_id, "port": "output"}
+                    )
+                else:
+                    output_envelope = output
                 
                 # Store output
                 ctx.node_outputs[node_id] = output
-                ctx.port_registry.set_value(node_id, "output", output)
+                ctx.port_registry.set_value(node_id, "output", output_envelope)
                 
                 # Add to trace
                 ctx.execution_trace.append({
@@ -228,6 +245,77 @@ class ExecutionEngine:
                 raise
         
         return result
+    
+    def _apply_port_mappings(
+        self, 
+        ctx: ExecutionContext, 
+        node_id: str, 
+        raw_inputs: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Apply port mappings to transform input data.
+        
+        Args:
+            ctx: Execution context
+            node_id: Target node identifier
+            raw_inputs: Raw input values from connected ports
+            
+        Returns:
+            Transformed input values after applying mappings
+        """
+        mapped_inputs = {}
+        
+        for port_name, value in raw_inputs.items():
+            # Check if there's a mapping for this port
+            mapping = ctx.port_registry.get_mapping(node_id, port_name)
+            
+            if mapping:
+                sys.stderr.write(
+                    f"[ENGINE] Applying mapping for {node_id}.{port_name} "
+                    f"(transform={mapping.transform})\n"
+                )
+                sys.stderr.flush()
+                
+                try:
+                    # Ensure value is a DataEnvelope
+                    if not isinstance(value, DataEnvelope):
+                        envelope = DataEnvelope(
+                            type="data",
+                            content=value,
+                            contentType="application/json"
+                        )
+                    else:
+                        envelope = value
+                    
+                    # Apply transformation
+                    transformed = self.mapper.apply_transform(envelope, mapping.transform)
+                    
+                    # Handle target_field injection
+                    if mapping.target_field:
+                        # Inject into a sub-field
+                        if port_name not in mapped_inputs:
+                            mapped_inputs[port_name] = {}
+                        mapped_inputs[port_name][mapping.target_field] = transformed
+                    else:
+                        # Direct assignment
+                        mapped_inputs[port_name] = transformed
+                        
+                except Exception as e:
+                    # Handle errors based on on_error policy
+                    error_msg = f"Mapping error: {e}"
+                    sys.stderr.write(f"[ENGINE] {error_msg}\n")
+                    sys.stderr.flush()
+                    
+                    if mapping.on_error == "stop":
+                        raise
+                    elif mapping.on_error == "skip":
+                        continue  # Skip this input
+                    elif mapping.on_error == "pass":
+                        mapped_inputs[port_name] = value  # Pass through unchanged
+            else:
+                # No mapping - pass value through
+                mapped_inputs[port_name] = value
+        
+        return mapped_inputs
     
     async def _execute_node(self, ctx: ExecutionContext, node: Node, inputs: dict[str, Any]) -> Any:
         """Execute a single node (function or agent call).

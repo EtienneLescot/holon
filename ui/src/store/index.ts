@@ -10,3 +10,10 @@ export { useUIStore, type UIStore, type PromptModalState } from './ui.store';
 export { useExecutionStore, type ExecutionStore } from './execution.store';
 export { useCredentialsStore, type CredentialsStore } from './credentials.store';
 export { useNodeTypesStore, type NodeTypesStore, type NodeTypeDefinition } from './nodeTypes.store';
+export { 
+  useMappingStore, 
+  type MappingStore, 
+  type PortMapping, 
+  type PortInfo, 
+  type NodeWithPorts 
+} from './mapping.store';

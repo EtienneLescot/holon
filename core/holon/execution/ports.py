@@ -6,6 +6,8 @@ import sys
 from dataclasses import dataclass, field
 from typing import Any
 
+from holon.domain.models import PortMapping
+
 
 @dataclass
 class PortValue:
@@ -41,6 +43,7 @@ class PortRegistry:
     def __init__(self) -> None:
         self.connections: list[PortConnection] = []
         self.values: dict[tuple[str, str], Any] = {}  # (node_id, port_id) → value
+        self.mappings: list[PortMapping] = []  # Port mapping rules
     
     def add_connection(
         self,
@@ -101,3 +104,43 @@ class PortRegistry:
             if conn.target_node == node_id:
                 dependencies.add(conn.source_node)
         return dependencies
+    
+    def add_mapping(self, mapping: PortMapping) -> None:
+        """Register a port mapping rule.
+        
+        Args:
+            mapping: Port mapping configuration
+        """
+        self.mappings.append(mapping)
+        sys.stderr.write(
+            f"[PORTS] Mapping: {mapping.source_node}.{mapping.source_port} "
+            f"→ {mapping.target_node}.{mapping.target_port} "
+            f"(transform={mapping.transform})\n"
+        )
+        sys.stderr.flush()
+    
+    def get_mapping(self, target_node: str, target_port: str) -> PortMapping | None:
+        """Find mapping rule for a target port.
+        
+        Args:
+            target_node: Target node identifier
+            target_port: Target port identifier
+            
+        Returns:
+            Matching PortMapping or None if not found
+        """
+        for mapping in self.mappings:
+            if mapping.target_node == target_node and mapping.target_port == target_port:
+                return mapping
+        return None
+    
+    def get_mappings_for_node(self, node_id: str) -> list[PortMapping]:
+        """Get all mappings targeting this node.
+        
+        Args:
+            node_id: Node identifier
+            
+        Returns:
+            List of mappings where this node is the target
+        """
+        return [m for m in self.mappings if m.target_node == node_id]

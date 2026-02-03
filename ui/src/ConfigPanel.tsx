@@ -3,6 +3,7 @@ import type { CoreNode } from "./protocol";
 import { useCredentialsStore } from "./store/credentials.store";
 import { useModelsStore } from "./store/models.store";
 import CustomSelect from './components/CustomSelect';
+import { DataBrowserModal } from './components/DataBrowserModal';
 
 type Props = {
   node: CoreNode | null;
@@ -26,6 +27,8 @@ export function ConfigPanel(props: Props): JSX.Element {
   const isOpen = Boolean(props.node);
   const headerLabel = props.node?.label ?? (props.node ? `${props.node.kind}: ${props.node.name}` : "");
   const [activeTab, setActiveTab] = useState<"config" | "output">("config");
+  const [dataBrowserOpen, setDataBrowserOpen] = useState(false);
+  const [currentField, setCurrentField] = useState<{ key: string; ref: HTMLTextAreaElement | null }>({ key: '', ref: null });
   
   // Stores
   const credentialsStore = useCredentialsStore();
@@ -55,6 +58,29 @@ export function ConfigPanel(props: Props): JSX.Element {
     if (!props.node.props) return "";
     return prettyJson(props.node.props);
   }, [props.node]);
+
+  const handleDataSelect = (reference: string) => {
+    if (currentField.ref && currentField.key) {
+      // Insert at cursor position
+      const textarea = currentField.ref;
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const currentValue = textarea.value;
+      const newValue = currentValue.substring(0, start) + reference + currentValue.substring(end);
+      
+      // Update the textarea value
+      textarea.value = newValue;
+      
+      // Trigger change event to update node props
+      const event = new Event('blur', { bubbles: true });
+      textarea.dispatchEvent(event);
+      
+      // Focus back and set cursor after inserted reference
+      textarea.focus();
+      textarea.setSelectionRange(start + reference.length, start + reference.length);
+    }
+    setDataBrowserOpen(false);
+  };
 
   return (
     <aside
@@ -219,8 +245,25 @@ export function ConfigPanel(props: Props): JSX.Element {
                                 <div key={key} className="space-y-3">
                                 <div className="flex justify-between items-center px-1">
                                   <label className="holonLabel">{key}</label>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const textarea = document.querySelector(`textarea[data-field="${key}"]`) as HTMLTextAreaElement;
+                                      setCurrentField({ key, ref: textarea });
+                                      setDataBrowserOpen(true);
+                                    }}
+                                    className="flex items-center gap-1 px-2 py-1 rounded-md bg-white/5 hover:bg-blue-500/20 text-white/40 hover:text-blue-400 text-[9px] font-medium uppercase tracking-wider transition-all"
+                                    title="Insert data reference"
+                                  >
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+                                      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+                                    </svg>
+                                    Map
+                                  </button>
                                 </div>
                                 <textarea
+                                  data-field={key}
                                   className="holonInput"
                                   defaultValue={typeof value === 'string' ? value : JSON.stringify(value)}
                                   onBlur={(e) => {
@@ -380,6 +423,15 @@ export function ConfigPanel(props: Props): JSX.Element {
           </div>
         )}
       </div>
+
+      {/* Data Browser Modal */}
+      {dataBrowserOpen && props.node && (
+        <DataBrowserModal
+          targetNodeId={props.node.id}
+          onSelect={handleDataSelect}
+          onClose={() => setDataBrowserOpen(false)}
+        />
+      )}
     </aside>
   );
 }

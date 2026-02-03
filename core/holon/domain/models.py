@@ -11,6 +11,7 @@ the UI/extension layers.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -120,3 +121,84 @@ class GraphSpec(BaseModel):
 
     nodes: list[NodeSpec] = Field(default_factory=list)
     edges: list[EdgeSpec] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Phase 6.1: Data Transport & Port Mapping
+# ---------------------------------------------------------------------------
+
+
+class DataEnvelope(BaseModel):
+    """Standardized data transport format between nodes.
+    
+    Provides a consistent wrapper for all data flowing through ports,
+    enabling transformation and mapping capabilities.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    type: Literal["message", "event", "data", "control"] = Field(
+        "data",
+        description="Payload type"
+    )
+    
+    content: Any = Field(
+        ...,
+        description="Main payload content (str, dict, list, etc.)"
+    )
+    
+    contentType: str = Field(
+        "text/plain",
+        description="MIME-type or schema hint (e.g., 'application/json', 'text/plain')"
+    )
+    
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Arbitrary key-values (conversationId, timestamp, model, etc.)"
+    )
+    
+    origin: dict[str, str] | None = Field(
+        default=None,
+        description="Source node+port: { 'nodeId': '...', 'port': '...' }"
+    )
+    
+    timestamp: datetime = Field(
+        default_factory=datetime.utcnow,
+        description="Creation timestamp (ISO8601)"
+    )
+
+
+class PortMapping(BaseModel):
+    """Mapping rule for transforming data between ports.
+    
+    Defines how data should be extracted, transformed, and routed
+    from a source port to a target port.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    source_node: str = Field(..., description="Source node identifier")
+    source_port: str = Field(..., description="Source port identifier")
+    target_node: str = Field(..., description="Target node identifier")
+    target_port: str = Field(..., description="Target port identifier")
+    
+    transform: str | None = Field(
+        default=None,
+        description="Transformation expression (JSONPath, template, or Python lambda)"
+    )
+    
+    target_field: str | None = Field(
+        default=None,
+        description="Target field within the payload (for nested injection)"
+    )
+    
+    when: str | None = Field(
+        default=None,
+        description="Conditional filter expression (optional)"
+    )
+    
+    on_error: Literal["stop", "skip", "pass"] = Field(
+        default="stop",
+        description="Error handling behavior"
+    )
+

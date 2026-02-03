@@ -399,24 +399,68 @@ class _AddSpecNodeTransformer(cst.CSTTransformer):
     props: dict[str, Any] | None
 
     def leave_Module(self, original_node: cst.Module, updated_node: cst.Module) -> cst.Module:
-        updated_node = _ensure_holon_imports(updated_node, names={"spec", "link"})
+        updated_node = _ensure_holon_imports(updated_node, names={"node"})
 
-        args: list[cst.Arg] = [cst.Arg(value=cst.SimpleString(json.dumps(self.node_id)))]
-        args.append(cst.Arg(keyword=cst.Name("type"), value=cst.SimpleString(json.dumps(self.node_type))))
-        if self.label is not None:
-            args.append(cst.Arg(keyword=cst.Name("label"), value=cst.SimpleString(json.dumps(self.label))))
-        if self.props is not None:
-            args.append(cst.Arg(keyword=cst.Name("props"), value=_to_cst_jsonish(self.props)))
-
-        stmt = cst.SimpleStatementLine(
-            body=[
-                cst.Expr(
-                    value=cst.Call(
-                        func=cst.Name("spec"),
-                        args=args,
+        # Generate class name from label or type
+        if self.label:
+            class_name = "".join(word.capitalize() for word in self.label.replace("-", " ").replace("_", " ").split())
+        else:
+            class_name = "".join(word.capitalize() for word in self.node_type.split("."))
+        
+        # Ensure class name is valid Python identifier
+        if not class_name or not class_name[0].isalpha():
+            class_name = "Node" + class_name
+        
+        # Build decorator: @node(type="...", id="...")
+        decorator_args: list[cst.Arg] = [
+            cst.Arg(keyword=cst.Name("type"), value=cst.SimpleString(json.dumps(self.node_type))),
+            cst.Arg(keyword=cst.Name("id"), value=cst.SimpleString(json.dumps(self.node_id))),
+        ]
+        
+        decorator = cst.Decorator(
+            decorator=cst.Call(
+                func=cst.Name("node"),
+                args=decorator_args,
+            )
+        )
+        
+        # Build class body with props as class attributes
+        class_body_stmts: list[cst.BaseStatement] = []
+        
+        # Add docstring if label exists
+        if self.label:
+            class_body_stmts.append(
+                cst.SimpleStatementLine(
+                    body=[cst.Expr(value=cst.SimpleString(json.dumps(self.label)))]
+                )
+            )
+        
+        # Add properties as class attributes
+        if self.props:
+            for key, value in self.props.items():
+                class_body_stmts.append(
+                    cst.SimpleStatementLine(
+                        body=[
+                            cst.Assign(
+                                targets=[cst.AssignTarget(target=cst.Name(key))],
+                                value=_to_cst_jsonish(value),
+                            )
+                        ]
                     )
                 )
-            ]
+        
+        # If no body, add pass statement
+        if not class_body_stmts:
+            class_body_stmts.append(
+                cst.SimpleStatementLine(body=[cst.Pass()])
+            )
+        
+        # Create class definition
+        class_def = cst.ClassDef(
+            name=cst.Name(class_name),
+            body=cst.IndentedBlock(body=class_body_stmts),
+            decorators=[decorator],
+            leading_lines=[cst.EmptyLine(indent=False, whitespace=cst.SimpleWhitespace(""))],
         )
 
         body: list[cst.BaseStatement] = list(updated_node.body)
@@ -431,7 +475,7 @@ class _AddSpecNodeTransformer(cst.CSTTransformer):
                 insert_at = i + 1
                 continue
 
-        body.insert(insert_at, stmt)
+        body.insert(insert_at, class_def)
         return updated_node.with_changes(body=body)
 
 
@@ -608,6 +652,28 @@ class _DeleteNodeTransformer(cst.CSTTransformer):
         if node_name and _is_decorated_as(original_node, "node") and original_node.name.value == node_name:
             self.deleted_any = True
             return cst.RemoveFromParent()
+        return updated_node
+    
+    def leave_ClassDef(self, original_node: cst.ClassDef, updated_node: cst.ClassDef) -> cst.RemovalSentinel | cst.ClassDef:
+        """Remove @node decorated classes matching the node_id."""
+        # Check if class has @node decorator with matching id
+        for dec in original_node.decorators:
+            decorator = dec.decorator
+            if not isinstance(decorator, cst.Call):
+                continue
+            if not _decorator_matches(decorator.func, "node"):
+                continue
+            
+            # Extract id from decorator arguments
+            for arg in decorator.args:
+                if arg.keyword is None:
+                    continue
+                if arg.keyword.value == "id":
+                    id_value = _string_expr_value(arg.value)
+                    if id_value == self.node_id:
+                        self.deleted_any = True
+                        return cst.RemoveFromParent()
+        
         return updated_node
 
     def leave_SimpleStatementLine(
