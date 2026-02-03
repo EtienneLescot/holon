@@ -27,6 +27,7 @@ import { CredentialsModal } from "./CredentialsModal";
 import { NodeSearchModal } from "./NodeSearchModal";
 import { PortLibraryPanel } from "./components/PortLibraryPanel";
 import { EdgeInspector } from "./components/EdgeInspector";
+import { ChatNode } from "./components/ChatNode";
 import { 
   useGraphStore, 
   useUIStore, 
@@ -130,6 +131,12 @@ function toReactFlowEdges(input: CoreEdge[]): Edge[] {
 
 function HolonNode(props: NodeProps<UiNodeData>): JSX.Element {
   const { data, selected } = props;
+  
+  // If this is a ui.chat node, render ChatNode component
+  if (data.nodeType === "ui.chat") {
+    return <ChatNode id={data.nodeId} data={{ label: data.label, props: data.props || {} }} />;
+  }
+  
   const status = data.aiStatus?.status ?? "idle";
   const canAiEdit = data.nodeId.startsWith("node:") || data.nodeId.startsWith("spec:");
   const canDescribe = data.nodeId.startsWith("node:") || data.nodeId.startsWith("spec:");
@@ -352,7 +359,7 @@ export default function App(): JSX.Element {
   }, []);
 
   useEffect(() => {
-    const handler = (event: MessageEvent) => {
+    const handler = async (event: MessageEvent) => {
       // Log all inbound postMessage events for debugging
       // eslint-disable-next-line no-console
       console.log("UI incoming message event:", event.data);
@@ -407,6 +414,26 @@ export default function App(): JSX.Element {
       if (msg.type === "nodeTypes.update") {
         console.log("Received nodeTypes.update:", msg.nodeTypes);
         setNodeTypes(msg.nodeTypes as any);
+      }
+
+      // Chat message handlers
+      if (msg.type === "chat.messageReceived") {
+        const { useChatStore } = await import("./store/chat.store");
+        useChatStore.getState().receiveEnvelope(msg.nodeId, msg.envelope);
+      }
+
+      if (msg.type === "chat.event") {
+        const { useChatStore } = await import("./store/chat.store");
+        const { event, nodeId } = msg;
+        
+        if (event.action === "clear_history") {
+          useChatStore.getState().clearHistory(nodeId);
+        } else if (event.action === "message_sent") {
+          useChatStore.getState().setWaiting(nodeId, false);
+        } else if (event.action === "error") {
+          useChatStore.getState().setWaiting(nodeId, false);
+          console.error("Chat error:", event.details);
+        }
       }
     };
 

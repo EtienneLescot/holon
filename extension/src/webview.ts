@@ -4,6 +4,7 @@ import * as fs from "node:fs";
 import { RpcClient, type CoreEdge, type CoreGraph, type CoreNode, type CorePosition } from "./rpcClient";
 import { prepareUiGraph, extractTopLevelFunction, validateSpecProps } from "../../ui/src/logic";
 import { PortSpec } from "../../ui/src/ports";
+import { ChatHandler } from "./chatHandler";
 
 type WebviewToExtensionMessage =
   | {
@@ -57,6 +58,17 @@ type WebviewToExtensionMessage =
     }
   | {
       type: "rpc.stop";
+    }
+  | {
+      type: "ui.chat.sendMessage";
+      nodeId: string;
+      envelope: any;
+    }
+  | {
+      type: "ui.chat.control";
+      nodeId: string;
+      action: string;
+      payload?: any;
     };
 
 type ExtensionToWebviewMessage =
@@ -123,6 +135,7 @@ export class HolonPanel {
   private rpc: RpcClient | undefined;
   private readonly extensionUri: vscode.Uri;
   private readonly output: vscode.OutputChannel;
+  private chatHandler: ChatHandler | undefined;
 
   private readonly positions = new Map<string, CorePosition>();
   private readonly annotations = new Map<string, { summary?: string; badges?: string[] }>();
@@ -222,6 +235,12 @@ export class HolonPanel {
             return;
           case "rpc.stop":
             await this.onStop();
+            return;
+          case "ui.chat.sendMessage":
+            await this.onChatSendMessage(message.nodeId, message.envelope);
+            return;
+          case "ui.chat.control":
+            await this.onChatControl(message.nodeId, message.action, message.payload);
             return;
           default:
             this.output.appendLine(`webview->ext: unknown message`);
@@ -749,6 +768,28 @@ export class HolonPanel {
     if (!ok) {
       throw new Error("Editor rejected the edit");
     }
+  }
+
+  private async onChatSendMessage(nodeId: string, envelope: any): Promise<void> {
+    this.output.appendLine(`ui.chat.sendMessage: ${nodeId}`);
+    
+    if (!this.chatHandler) {
+      const rpc = await this.ensureRpc();
+      this.chatHandler = new ChatHandler(rpc, (msg) => this.postMessage(msg as any));
+    }
+    
+    await this.chatHandler.handleSendMessage(nodeId, envelope);
+  }
+
+  private async onChatControl(nodeId: string, action: string, payload?: any): Promise<void> {
+    this.output.appendLine(`ui.chat.control: ${nodeId} action=${action}`);
+    
+    if (!this.chatHandler) {
+      const rpc = await this.ensureRpc();
+      this.chatHandler = new ChatHandler(rpc, (msg) => this.postMessage(msg as any));
+    }
+    
+    await this.chatHandler.handleControlCommand(nodeId, action, payload);
   }
 
   private async onUiWorkflowRun(workflowName: string): Promise<void> {

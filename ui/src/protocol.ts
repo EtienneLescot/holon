@@ -115,6 +115,37 @@ export const NodeTypesUpdateSchema = z.object({
   })),
 });
 
+// DataEnvelope schema for chat messages
+export const DataEnvelopeSchema = z.object({
+  type: z.string(),
+  content: z.any(),
+  contentType: z.string().optional(),
+  metadata: z.record(z.any()).optional(),
+  origin: z.object({
+    nodeId: z.string(),
+    port: z.string(),
+  }).optional(),
+  timestamp: z.string().optional(),
+});
+
+export type DataEnvelope = z.infer<typeof DataEnvelopeSchema>;
+
+// Chat message schemas
+export const ChatMessageReceivedSchema = z.object({
+  type: z.literal("chat.messageReceived"),
+  nodeId: z.string(),
+  envelope: DataEnvelopeSchema,
+});
+
+export const ChatEventSchema = z.object({
+  type: z.literal("chat.event"),
+  nodeId: z.string(),
+  event: z.object({
+    action: z.string(),
+    details: z.any().optional(),
+  }),
+});
+
 export const ToUiMessageSchema = z.union([
   GraphInitSchema,
   GraphUpdateSchema,
@@ -125,6 +156,8 @@ export const ToUiMessageSchema = z.union([
   WorkflowExecutionResultSchema,
   ExecutionOutputSchema,
   NodeTypesUpdateSchema,
+  ChatMessageReceivedSchema,
+  ChatEventSchema,
 ]);
 export type ToUiMessage = z.infer<typeof ToUiMessageSchema>;
 
@@ -232,6 +265,20 @@ export const UiMappingDeleteSchema = z.object({
   }),
 });
 
+// Chat message schemas (UI to Extension)
+export const UiChatSendMessageSchema = z.object({
+  type: z.literal("ui.chat.sendMessage"),
+  nodeId: z.string(),
+  envelope: DataEnvelopeSchema,
+});
+
+export const UiChatControlSchema = z.object({
+  type: z.literal("ui.chat.control"),
+  nodeId: z.string(),
+  action: z.string(),
+  payload: z.any().optional(),
+});
+
 export const ToExtensionMessageSchema = z.union([
   UiReadySchema,
   UiNodesChangedSchema,
@@ -247,5 +294,7 @@ export const ToExtensionMessageSchema = z.union([
   UiMappingInsertCodeSchema,
   UiMappingViewCodeSchema,
   UiMappingDeleteSchema,
+  UiChatSendMessageSchema,
+  UiChatControlSchema,
 ]);
 export type ToExtensionMessage = z.infer<typeof ToExtensionMessageSchema>;

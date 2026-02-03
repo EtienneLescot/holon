@@ -1,0 +1,45 @@
+{
+  "ui.chat": {
+    "label": "Chat",
+    "category": "UI",
+    "description": "Interactive chat node for user input/output",
+    "icon": "💬",
+    "defaultProps": {
+      "placeholder": "Tapez votre message...",
+      "max_history": 50,
+      "auto_scroll": true,
+      "show_timestamps": true,
+      "allow_markdown": true,
+      "theme": "default"
+    },
+    "configSchema": {
+      "placeholder": {
+        "type": "string",
+        "label": "Placeholder"
+      },
+      "max_history": {
+        "type": "number",
+        "label": "Max history",
+        "min": 1,
+        "max": 500
+      },
+      "auto_scroll": {
+        "type": "boolean",
+        "label": "Auto-scroll"
+      },
+      "show_timestamps": {
+        "type": "boolean",
+        "label": "Show timestamps"
+      },
+      "allow_markdown": {
+        "type": "boolean",
+        "label": "Allow Markdown"
+      },
+      "theme": {
+        "type": "select",
+        "label": "Theme",
+        "options": ["default", "minimal", "compact"]
+      }
+    }
+  }
+}

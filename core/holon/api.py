@@ -6,6 +6,7 @@ from holon.registry import get_global_registry
 
 # Import modules to register their resolvers
 import holon.library.langchain_registry  # noqa: F401
+import holon.library.ui_nodes  # noqa: F401
 
 
 def get_available_node_types() -> list[dict[str, str]]:
@@ -70,6 +71,19 @@ def get_available_node_types() -> list[dict[str, str]]:
             "category": "Parsers",
             "description": "Parse JSON responses",
             "defaultProps": {"schema": {}},
+        },
+        "ui.chat": {
+            "label": "Chat",
+            "category": "UI",
+            "description": "Interactive chat node for user input/output",
+            "defaultProps": {
+                "placeholder": "Tapez votre message...",
+                "max_history": 50,
+                "auto_scroll": True,
+                "show_timestamps": True,
+                "allow_markdown": True,
+                "theme": "default",
+            },
         },
     }
     
