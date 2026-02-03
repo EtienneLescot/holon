@@ -35,18 +35,35 @@ export function DataBrowserModal({ targetNodeId, onSelect, onClose }: DataBrowse
   const edges = useGraphStore((s) => s.edges);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Calculate upstream nodes (nodes that connect TO the target node)
+  // Calculate upstream nodes (all nodes that eventually lead to target)
   const upstreamNodes = useMemo(() => {
     const upstream: UpstreamNodeData[] = [];
 
-    // Find all edges that have target as the target node
-    const incomingEdges = edges.filter((edge) => edge.target === targetNodeId);
-    
-    // Get unique source node IDs
-    const sourceNodeIds = new Set(incomingEdges.map((edge) => edge.source));
+    // Build incoming adjacency list: target -> [source]
+    const incomingByTarget = new Map<string, string[]>();
+    edges.forEach((edge) => {
+      const list = incomingByTarget.get(edge.target) || [];
+      list.push(edge.source);
+      incomingByTarget.set(edge.target, list);
+    });
+
+    // Traverse all upstream nodes via BFS/DFS
+    const visited = new Set<string>();
+    const queue: string[] = [targetNodeId];
+
+    while (queue.length > 0) {
+      const current = queue.shift();
+      if (!current) continue;
+      const incoming = incomingByTarget.get(current) || [];
+      incoming.forEach((sourceId) => {
+        if (visited.has(sourceId)) return;
+        visited.add(sourceId);
+        queue.push(sourceId);
+      });
+    }
 
     // For each upstream node, extract available fields
-    sourceNodeIds.forEach((nodeId) => {
+    visited.forEach((nodeId) => {
       const node = nodes.find((n) => n.id === nodeId);
       if (!node) return;
 

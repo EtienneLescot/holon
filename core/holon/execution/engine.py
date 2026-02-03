@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from dataclasses import dataclass, field
 from typing import Any
@@ -90,7 +91,7 @@ class ExecutionEngine:
         sys.stderr.flush()
         
         for node in ctx.graph.nodes:
-            if node.kind == "spec" and node.node_type:
+            if node.node_type and node.kind in ("spec", "node"):
                 try:
                     resolved = ctx.resolver.resolve(
                         node_id=node.id,
@@ -122,12 +123,12 @@ class ExecutionEngine:
             if node.id.startswith("workflow:"):
                 continue
             
-            # Include function nodes
-            if node.kind in ("node",):
+            # Include function nodes (no node_type)
+            if node.kind == "node" and not node.node_type:
                 executable.append(node.id)
             
-            # Include langchain.agent spec nodes (they are executable)
-            if node.kind == "spec" and node.node_type == "langchain.agent":
+            # Include langchain.agent nodes (they are executable)
+            if node.node_type == "langchain.agent":
                 executable.append(node.id)
         
         # Simple topological sort: nodes with no dependencies first
@@ -194,10 +195,10 @@ class ExecutionEngine:
             try:
                 # Execute node based on type
                 # Special case: langchain.agent spec nodes need execution
-                if node.kind == "spec" and node.node_type == "langchain.agent":
+                if node.node_type == "langchain.agent":
                     # Execute agent with port inputs
                     output = await self._execute_agent_node(ctx, node, mapped_inputs)
-                elif node.kind == "spec":
+                elif node.kind == "spec" or (node.kind == "node" and node.node_type):
                     # Other spec nodes already resolved, get their output
                     output = ctx.port_registry.get_value(node_id, "output")
                 else:
@@ -217,12 +218,12 @@ class ExecutionEngine:
                 # Store output
                 ctx.node_outputs[node_id] = output
                 ctx.port_registry.set_value(node_id, "output", output_envelope)
-                
-                # Add to trace
+
                 ctx.execution_trace.append({
                     "node_id": node_id,
                     "status": "success",
-                    "error": None
+                    "error": None,
+                    "output": _serialize_output(output)
                 })
                 
                 sys.stderr.write(f"[ENGINE] Node {node_id} completed, output type: {type(output).__name__}\n")
@@ -243,9 +244,9 @@ class ExecutionEngine:
                 sys.stderr.flush()
                 # Re-raise to stop execution
                 raise
-        
+
         return result
-    
+
     def _apply_port_mappings(
         self, 
         ctx: ExecutionContext, 
@@ -393,3 +394,27 @@ class ExecutionEngine:
             if node.id == node_id:
                 return node
         return None
+
+
+def _serialize_output(value: Any) -> Any:
+    """Best-effort JSON-serializable output for execution traces."""
+    if isinstance(value, DataEnvelope):
+        return value.model_dump()
+    if hasattr(value, "model_dump"):
+        try:
+            return value.model_dump()  # type: ignore[call-arg]
+        except Exception:
+            pass
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    if isinstance(value, list):
+        return [_serialize_output(v) for v in value]
+    if isinstance(value, tuple):
+        return [_serialize_output(v) for v in value]
+    if isinstance(value, dict):
+        return {str(k): _serialize_output(v) for k, v in value.items()}
+    try:
+        json.dumps(value)
+        return value
+    except Exception:
+        return str(value)

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from holon import node, workflow, link, spec
+from holon import node, workflow, link
 
 @node(type = "langchain.agent", id = "node:langchain_agent:f2e6a12b-3e5b-4a99-a8ad-6a1af300997e")
 class LangchainAgent:
@@ -29,14 +29,21 @@ class Chat:
 @workflow
 async def main() -> str:
     """Simple workflow: connect LLM to agent and execute."""
-    
+
     @link
     class _:
-        source = (GPT4o, "output")
-        target = (SimpleChatAgent, "llm")
-    link("workflow:main", "start", "node:ui_chat:010180e3-0edd-471c-bc29-22149d1ae7e9", "in.message")
-    link("node:ui_chat:010180e3-0edd-471c-bc29-22149d1ae7e9", "out.message", "node:llm_model:34370cdf-5a9e-4c92-ae47-f4179ac26bbc", "input")
-    link("node:llm_model:34370cdf-5a9e-4c92-ae47-f4179ac26bbc", "output", "node:langchain_agent:f2e6a12b-3e5b-4a99-a8ad-6a1af300997e", "input")
+        source = ("workflow:main", "start")
+        target = ("node:ui_chat:010180e3-0edd-471c-bc29-22149d1ae7e9", "in.message")
+
+    @link
+    class _:
+        source = ("node:ui_chat:010180e3-0edd-471c-bc29-22149d1ae7e9", "out.message")
+        target = ("node:langchain_agent:f2e6a12b-3e5b-4a99-a8ad-6a1af300997e", "input")
+
+    @link
+    class _:
+        source = ("node:llm_model:34370cdf-5a9e-4c92-ae47-f4179ac26bbc", "output")
+        target = ("node:langchain_agent:f2e6a12b-3e5b-4a99-a8ad-6a1af300997e", "llm")
     
     # The agent will use user_prompt from its props as input
     # In the future, we could connect an input node here
