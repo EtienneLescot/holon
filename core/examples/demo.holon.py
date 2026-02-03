@@ -2,32 +2,18 @@ from __future__ import annotations
 
 from holon import node, workflow, link, spec
 
-@node(type = "llm.model", id = "node:llm_model:0b68b23e-fd77-4085-81bd-d9cb39f17e10")
+@node(type = "llm.model", id = "node:llm_model:ec1cad4c-90cd-4d8e-bff1-17ce9ab6e055")
 class LlmModel:
     "LLM Model"
-    model_name = "gpt-4o"
+    provider = "openai"
+    model_name = "gpt-4.1-mini"
     temperature = 0.7
 
-@node(type = "langchain.agent", id = "node:langchain_agent:a146d5b4-08d8-4909-a109-e2ec8fd3719f")
+@node(type = "langchain.agent", id = "node:langchain_agent:0734cde9-bfba-45ae-bf30-b945db1c1082")
 class LangchainAgent:
     "LangChain Agent"
     system_prompt = "You are a helpful assistant."
     user_prompt = "Tell me a story."
-
-# LLM Model configuration
-@node(type="llm.model", id="node:llm_model:gpt4o")
-class GPT4o:
-    """GPT-4o language model."""
-    provider = "openai"
-    model_name = "gpt-4o-mini"
-    temperature = 0.7
-
-# Simple Agent configuration
-@node(type="langchain.agent", id="node:agent:chat")
-class SimpleChatAgent:
-    """Simple chat agent."""
-    system_prompt = "You are a helpful assistant."
-    user_prompt = "Tell me a short joke about robots."
 
 
 @workflow
@@ -38,6 +24,8 @@ async def main() -> str:
     class _:
         source = (GPT4o, "output")
         target = (SimpleChatAgent, "llm")
+    link("node:llm_model:ec1cad4c-90cd-4d8e-bff1-17ce9ab6e055", "output", "node:langchain_agent:0734cde9-bfba-45ae-bf30-b945db1c1082", "input")
+    link("workflow:main", "start", "node:llm_model:ec1cad4c-90cd-4d8e-bff1-17ce9ab6e055", "input")
     
     # The agent will use user_prompt from its props as input
     # In the future, we could connect an input node here

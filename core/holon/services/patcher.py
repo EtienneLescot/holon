@@ -627,6 +627,124 @@ class _PatchSpecNodeTransformer(cst.CSTTransformer):
 
         self.patched = True
         return updated_node.with_changes(body=[new_inner])
+    
+    def leave_ClassDef(self, original_node: cst.ClassDef, updated_node: cst.ClassDef) -> cst.ClassDef:
+        """Patch @node decorated classes matching the node_id."""
+        if self.patched:
+            return updated_node
+        
+        # Check if class has @node decorator with matching id
+        node_decorator_idx = None
+        for idx, dec in enumerate(original_node.decorators):
+            decorator = dec.decorator
+            if not isinstance(decorator, cst.Call):
+                continue
+            if not _decorator_matches(decorator.func, "node"):
+                continue
+            
+            # Extract id from decorator arguments
+            for arg in decorator.args:
+                if arg.keyword and arg.keyword.value == "id":
+                    id_value = _string_expr_value(arg.value)
+                    if id_value == self.node_id:
+                        node_decorator_idx = idx
+                        break
+            if node_decorator_idx is not None:
+                break
+        
+        if node_decorator_idx is None:
+            return updated_node
+        
+        # Extract current props from class body
+        current_props: dict[str, Any] = {}
+        for stmt in original_node.body.body:
+            if not isinstance(stmt, cst.SimpleStatementLine) or len(stmt.body) != 1:
+                continue
+            inner = stmt.body[0]
+            
+            # Skip docstrings
+            if isinstance(inner, cst.Expr) and isinstance(inner.value, cst.SimpleString):
+                continue
+            
+            # Extract assignments
+            if isinstance(inner, cst.Assign) and len(inner.targets) == 1:
+                target = inner.targets[0].target
+                if isinstance(target, cst.Name):
+                    key = target.value
+                    value = _from_cst_jsonish(inner.value)
+                    if value is not None:
+                        current_props[key] = value
+            elif isinstance(inner, cst.AnnAssign) and isinstance(inner.target, cst.Name) and inner.value:
+                key = inner.target.value
+                value = _from_cst_jsonish(inner.value)
+                if value is not None:
+                    current_props[key] = value
+        
+        # Merge with new props
+        next_props = current_props.copy()
+        if self.set_props and self.props is not None:
+            next_props.update(self.props)
+        
+        # Rebuild class body with updated props
+        new_body_stmts: list[cst.BaseStatement] = []
+        
+        # Preserve docstring if exists
+        for stmt in original_node.body.body:
+            if isinstance(stmt, cst.SimpleStatementLine) and len(stmt.body) == 1:
+                inner = stmt.body[0]
+                if isinstance(inner, cst.Expr) and isinstance(inner.value, cst.SimpleString):
+                    new_body_stmts.append(stmt)
+                    break
+        
+        # Add props as assignments
+        for key, value in next_props.items():
+            new_body_stmts.append(
+                cst.SimpleStatementLine(
+                    body=[
+                        cst.Assign(
+                            targets=[cst.AssignTarget(target=cst.Name(key))],
+                            value=_to_cst_jsonish(value),
+                        )
+                    ]
+                )
+            )
+        
+        # If no body, add pass
+        if not new_body_stmts:
+            new_body_stmts.append(cst.SimpleStatementLine(body=[cst.Pass()]))
+        
+        # Update decorator if needed (type, label)
+        decorators = list(updated_node.decorators)
+        if node_decorator_idx is not None:
+            old_decorator = decorators[node_decorator_idx].decorator
+            if isinstance(old_decorator, cst.Call):
+                new_args = list(old_decorator.args)
+                
+                # Update type if requested
+                if self.set_node_type and self.node_type:
+                    type_arg_idx = None
+                    for idx, arg in enumerate(new_args):
+                        if arg.keyword and arg.keyword.value == "type":
+                            type_arg_idx = idx
+                            break
+                    
+                    new_type_arg = cst.Arg(
+                        keyword=cst.Name("type"),
+                        value=cst.SimpleString(json.dumps(self.node_type))
+                    )
+                    if type_arg_idx is not None:
+                        new_args[type_arg_idx] = new_type_arg
+                    else:
+                        new_args.append(new_type_arg)
+                
+                new_decorator_call = old_decorator.with_changes(args=new_args)
+                decorators[node_decorator_idx] = decorators[node_decorator_idx].with_changes(decorator=new_decorator_call)
+        
+        self.patched = True
+        return updated_node.with_changes(
+            body=cst.IndentedBlock(body=new_body_stmts),
+            decorators=decorators,
+        )
 
 
 @dataclass(slots=True)

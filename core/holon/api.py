@@ -30,7 +30,7 @@ def get_available_node_types() -> list[dict[str, str]]:
             "label": "LLM Model",
             "category": "AI",
             "description": "Large Language Model (OpenAI, Anthropic, etc.)",
-            "defaultProps": {"model_name": "gpt-4o", "temperature": 0.7},
+            "defaultProps": {"provider": "openai", "model_name": "gpt-4o", "temperature": 0.7},
         },
         "langchain.agent": {
             "label": "LangChain Agent",
