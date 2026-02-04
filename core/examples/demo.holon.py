@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from holon import node, workflow, link, spec
 
-@node(type = "langchain.agent", id = "node:langchain_agent:eac30101-47ea-4054-86e5-c5bd556e5611")
+@node(type = "langchain.agent", id = "node:langchain_agent:95495835-d9dc-492a-9b9e-31ca214bc6c7")
 class LangchainAgent:
     "LangChain Agent"
     system_prompt = "You are a helpful assistant."
     user_prompt = "Tell me a story."
 
-@node(type = "langchain.agent", id = "node:langchain_agent:f2e6a12b-3e5b-4a99-a8ad-6a1af300997e")
+@node(type = "langchain.agent", id = "node:langchain_agent:eac30101-47ea-4054-86e5-c5bd556e5611")
 class LangchainAgent:
     "LangChain Agent"
     system_prompt = "You are a helpful assistant."
@@ -51,6 +51,8 @@ async def main() -> str:
         source = ("node:llm_model:34370cdf-5a9e-4c92-ae47-f4179ac26bbc", "output")
         target = ("node:langchain_agent:f2e6a12b-3e5b-4a99-a8ad-6a1af300997e", "llm")
     link("node:llm_model:34370cdf-5a9e-4c92-ae47-f4179ac26bbc", "output", "node:langchain_agent:eac30101-47ea-4054-86e5-c5bd556e5611", "input")
+    link("node:langchain_agent:eac30101-47ea-4054-86e5-c5bd556e5611", "output", "node:langchain_agent:95495835-d9dc-492a-9b9e-31ca214bc6c7", "input")
+    link("node:llm_model:34370cdf-5a9e-4c92-ae47-f4179ac26bbc", "llm", "node:langchain_agent:eac30101-47ea-4054-86e5-c5bd556e5611", "llm")
     
     # The agent will use user_prompt from its props as input
     # In the future, we could connect an input node here

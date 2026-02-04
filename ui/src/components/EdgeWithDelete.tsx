@@ -27,6 +27,8 @@ export default function EdgeWithDelete({
         targetPosition,
     });
 
+    const [isHovered, setIsHovered] = React.useState(false);
+
     const onEdgeDelete = () => {
         // Send delete message directly (no confirmation dialog per user request)
         postToExtension({
@@ -41,7 +43,9 @@ export default function EdgeWithDelete({
     };
 
     return (
-        <>
+        <g onMouseEnter={() => setIsHovered(true)} onMouseLeave={() => setIsHovered(false)}>
+            {/* Invisible interaction path (wider target for hover) */}
+            <BaseEdge path={edgePath} style={{ strokeWidth: 20, stroke: 'transparent', fill: 'none' }} />
             <BaseEdge path={edgePath} {...(markerEnd ? { markerEnd } : {})} style={style} />
             <EdgeLabelRenderer>
                 <div
@@ -55,6 +59,10 @@ export default function EdgeWithDelete({
                 >
                     <button
                         className="edgeTrashButton"
+                        style={{
+                            opacity: isHovered ? 1 : 0,
+                            pointerEvents: isHovered ? 'all' : 'none',
+                        }}
                         onClick={(event) => {
                             event.stopPropagation();
                             onEdgeDelete();
@@ -66,6 +74,6 @@ export default function EdgeWithDelete({
                     </button>
                 </div>
             </EdgeLabelRenderer>
-        </>
+        </g>
     );
 }

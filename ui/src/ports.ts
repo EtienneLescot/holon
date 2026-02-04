@@ -24,6 +24,19 @@ export const SPEC_TYPE_REGISTRY: Record<string, SpecTypeRegistryEntry> = {
       { id: "llm", direction: "input", kind: "llm", label: "llm" },
       { id: "memory", direction: "input", kind: "memory", label: "memory" },
       { id: "tools", direction: "input", kind: "tool", label: "tools", multi: true },
+      { id: "parser", direction: "input", kind: "parser", label: "parser" },
+      { id: "output", direction: "output", kind: "data", label: "output" },
+    ],
+  },
+  // Alias for manual inputs or label mismatches
+  "Langchain Agent": {
+    type: "langchain.agent",
+    ports: [
+      { id: "input", direction: "input", kind: "data", label: "input" },
+      { id: "llm", direction: "input", kind: "llm", label: "llm" },
+      { id: "memory", direction: "input", kind: "memory", label: "memory" },
+      { id: "tools", direction: "input", kind: "tool", label: "tools", multi: true },
+      { id: "parser", direction: "input", kind: "parser", label: "parser" },
       { id: "output", direction: "output", kind: "data", label: "output" },
     ],
   },
@@ -49,16 +62,17 @@ export function inferPorts(input: { kind: "node" | "workflow" | "spec"; nodeType
   if (input.kind === "workflow") {
     return [{ id: "start", direction: "output", kind: "control", label: "start" }];
   }
+
+  const type = input.nodeType;
+  if (type && SPEC_TYPE_REGISTRY[type]) {
+    return SPEC_TYPE_REGISTRY[type].ports;
+  }
+
   if (input.kind === "node") {
     return [
       { id: "input", direction: "input", kind: "data", label: "input" },
       { id: "output", direction: "output", kind: "data", label: "output" },
     ];
-  }
-
-  const type = input.nodeType;
-  if (type && SPEC_TYPE_REGISTRY[type]) {
-    return SPEC_TYPE_REGISTRY[type].ports;
   }
 
   // Unknown spec types still get a simple default shape.

@@ -1,99 +1,16 @@
-import { ToExtensionMessageSchema, type CoreGraph } from "./protocol";
+import { ToExtensionMessageSchema, type CoreGraph, type CoreNode, type CoreEdge } from "./protocol";
 import { getVsCodeApi, registerBrowserBridge } from "./vscodeBridge";
 
 // Inline copies to avoid Rollup import resolution issues
 
-type PortDirection = "input" | "output";
-type PortKind = "data" | "llm" | "memory" | "tool" | "parser" | "control";
-
-type PortSpec = {
-  id: string;
-  direction: PortDirection;
-  kind?: PortKind;
-  label?: string;
-  multi?: boolean;
-};
-
-const SPEC_TYPE_REGISTRY: Record<string, { type: string; ports: PortSpec[] }> = {
-  "langchain.agent": {
-    type: "langchain.agent",
-    ports: [
-      { id: "input", direction: "input", kind: "data", label: "input" },
-      { id: "llm", direction: "input", kind: "llm", label: "llm" },
-      { id: "memory", direction: "input", kind: "memory", label: "memory" },
-      { id: "tools", direction: "input", kind: "tool", label: "tools", multi: true },
-      { id: "output", direction: "output", kind: "data", label: "output" },
-    ],
-  },
-  "llm.model": {
-    type: "llm.model",
-    ports: [{ id: "llm", direction: "output", kind: "llm", label: "llm" }],
-  },
-  "memory.buffer": {
-    type: "memory.buffer",
-    ports: [{ id: "memory", direction: "output", kind: "memory", label: "memory" }],
-  },
-  "tool.example": {
-    type: "tool.example",
-    ports: [{ id: "tool", direction: "output", kind: "tool", label: "tool" }],
-  },
-  "parser.json": {
-    type: "parser.json",
-    ports: [{ id: "parser", direction: "output", kind: "parser", label: "parser" }],
-  },
-};
-
-function inferPorts(input: { kind: "node" | "workflow" | "spec"; nodeType?: string | undefined }): PortSpec[] {
-  if (input.kind === "workflow") {
-    return [{ id: "start", direction: "output", kind: "control", label: "start" }];
-  }
-  if (input.kind === "node") {
-    return [
-      { id: "input", direction: "input", kind: "data", label: "input" },
-      { id: "output", direction: "output", kind: "data", label: "output" },
-    ];
-  }
-
-  const type = input.nodeType;
-  if (type && SPEC_TYPE_REGISTRY[type]) {
-    return SPEC_TYPE_REGISTRY[type].ports;
-  }
-
-  return [
-    { id: "input", direction: "input", kind: "data", label: "input" },
-    { id: "output", direction: "output", kind: "data", label: "output" },
-  ];
-}
-
-// Inline copies of prepareUiGraph and extractTopLevelFunction to avoid Rollup import issues
-
-type UiNode = {
-  id: string;
-  name: string;
-  kind: "node" | "workflow" | "spec";
-  label: string;
-  nodeType?: string | null;
-  props?: Record<string, unknown> | null;
-  position: { x: number; y: number } | null;
-  summary?: string | null;
-  badges?: string[] | null;
-  ports: PortSpec[];
-};
-
-type UiEdge = {
-  source: string;
-  target: string;
-  sourcePort: string;
-  targetPort: string;
-  kind: "code" | "link";
-};
+// Inline copies avoided. We now rely on App.tsx to handle inference using ports.ts via shared logic.
 
 function prepareUiGraph(
   graph: any,
   positions: Record<string, { x: number; y: number }>,
   annotations: Record<string, { summary?: string; badges?: string[] }>
-): { nodes: UiNode[]; edges: UiEdge[] } {
-  const nodes: UiNode[] = (graph.nodes || []).map((n: any) => {
+): { nodes: CoreNode[]; edges: CoreEdge[] } {
+  const nodes: CoreNode[] = (graph.nodes || []).map((n: any) => {
     const pos = positions[n.id];
     const ann = annotations[n.id];
     const nodeType = n.nodeType ?? n.node_type;
@@ -109,11 +26,11 @@ function prepareUiGraph(
       position: pos || n.position || { x: 0, y: 0 },
       summary: ann?.summary || n.summary,
       badges: ann?.badges || n.badges,
-      ports: n.ports || inferPorts({ kind: n.kind, nodeType }),
+      ports: n.ports || null, // Let App.tsx / ports.ts handle inference
     };
   });
 
-  const edges: UiEdge[] = (graph.edges || []).map((e: any) => {
+  const edges: CoreEdge[] = (graph.edges || []).map((e: any) => {
     const sourcePort = e.sourcePort ?? e.source_port ?? "output";
     const targetPort = e.targetPort ?? e.target_port ?? "input";
     const kind = e.kind ?? "code";
