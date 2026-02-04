@@ -177,6 +177,7 @@ def _make_handler(state: _State) -> type[BaseHTTPRequestHandler]:
                             "patch_node": "/api/patch_node",
                             "patch_spec_node": "/api/patch_spec_node",
                             "delete_node": "/api/delete_node",
+                            "delete_link": "/api/delete_link",
                             "execute_workflow": "/api/execute_workflow",
                         },
                         "ui_hint": "The UI runs on the Vite dev server (typically http://127.0.0.1:5173/). This devserver is API-only.",
@@ -373,6 +374,24 @@ def _make_handler(state: _State) -> type[BaseHTTPRequestHandler]:
                         raise ValueError("node_id must be a string")
 
                     state.source = delete_node(state.source, node_id=node_id)
+                    state.save()
+                    self._send_json(200, {"source": state.source})
+                    return
+
+                if self.path == "/api/delete_link":
+                    source_node_id = body.get("source_node_id")
+                    source_port = body.get("source_port")
+                    target_node_id = body.get("target_node_id")
+                    target_port = body.get("target_port")
+
+                    from holon.services.patcher import delete_edge
+                    state.source = delete_edge(
+                        state.source,
+                        source_node_id=source_node_id,
+                        source_port=source_port,
+                        target_node_id=target_node_id,
+                        target_port=target_port,
+                    )
                     state.save()
                     self._send_json(200, {"source": state.source})
                     return

@@ -493,6 +493,23 @@ class BrowserDevBridge {
       return;
     }
 
+    if (msg.type === "ui.edgeDeleted") {
+      await fetchJson<{ source: string }>("/api/delete_link", {
+        method: "POST",
+        body: JSON.stringify({
+          source_node_id: msg.edge.source,
+          source_port: msg.edge.sourcePort ?? "output",
+          target_node_id: msg.edge.target,
+          target_port: msg.edge.targetPort ?? "input",
+        }),
+      }).then((r) => {
+        this.source = r.source;
+      });
+
+      await this.parseAndSend("ui.edgeDeleted");
+      return;
+    }
+
     if (msg.type === "ui.workflow.run") {
       const workflowName = msg.workflowName;
       try {
