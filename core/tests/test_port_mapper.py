@@ -19,7 +19,7 @@ class TestPortMapper:
             content="Hello world",
             contentType="text/plain",
             metadata={"role": "user", "conversationId": "c123"},
-            origin={"nodeId": "chat-1", "port": "out.message"},
+            origin={"nodeId": "chat-1", "port": "out"},
         )
 
     def test_identity_transform(self):

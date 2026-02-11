@@ -82,7 +82,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         role: 'user',
         conversationId,
       },
-      origin: { nodeId, port: 'out.message' },
+      origin: { nodeId, port: 'out' },
       timestamp: new Date().toISOString(),
     };
     

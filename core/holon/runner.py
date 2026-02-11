@@ -175,7 +175,7 @@ class WorkflowRunner:
             # Check if we should use graph-based execution
             # Parse the source to see if there are link() calls
             source = file_path.read_text(encoding="utf8")
-            use_graph_engine = "link(" in source
+            use_graph_engine = "link(" in source or "@link" in source
             
             if use_graph_engine:
                 sys.stderr.write(f"[RUNNER] Using graph-based execution engine\n")

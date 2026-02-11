@@ -16,24 +16,17 @@ def test_chat_node_resolution():
     assert node.type == "ui.chat"
     assert node.id == "spec:chat:test"
     assert node.label == "Chat"
-    assert len(node.inputs) == 2
-    assert len(node.outputs) == 2
+    assert len(node.inputs) == 1
+    assert len(node.outputs) == 1
     
-    # Check input ports
-    assert node.inputs[0].id == "in.message"
+    # Check input port
+    assert node.inputs[0].id == "in"
     assert node.inputs[0].kind == "data"
     assert node.inputs[0].multi is True
     
-    assert node.inputs[1].id == "in.control"
-    assert node.inputs[1].kind == "control"
-    assert node.inputs[1].multi is False
-    
-    # Check output ports
-    assert node.outputs[0].id == "out.message"
+    # Check output port
+    assert node.outputs[0].id == "out"
     assert node.outputs[0].kind == "data"
-    
-    assert node.outputs[1].id == "out.event"
-    assert node.outputs[1].kind == "control"
     
     # Check props
     assert node.props["placeholder"] == "Test placeholder"
@@ -65,7 +58,7 @@ def test_chat_message_envelope_user():
         },
         origin={
             "nodeId": "spec:chat:main",
-            "port": "out.message",
+            "port": "out",
         },
     )
     
@@ -75,7 +68,7 @@ def test_chat_message_envelope_user():
     assert envelope.metadata["role"] == "user"
     assert envelope.metadata["conversationId"] == "conv_123"
     assert envelope.origin["nodeId"] == "spec:chat:main"
-    assert envelope.origin["port"] == "out.message"
+    assert envelope.origin["port"] == "out"
 
 
 def test_chat_message_envelope_assistant():

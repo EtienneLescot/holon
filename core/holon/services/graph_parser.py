@@ -51,9 +51,12 @@ def parse_graph(source_code: str) -> Graph:
     link_collector = _WorkflowLinkCollector()
     module.visit(link_collector)
 
+    link_class_collector = _LinkClassCollector()
+    module.visit(link_class_collector)
+
     return Graph(
         nodes=[*node_collector.nodes, *spec_collector.nodes, *class_node_collector.nodes],
-        edges=[*edge_collector.edges, *link_collector.edges],
+        edges=[*edge_collector.edges, *link_collector.edges, *link_class_collector.edges],
     )
 
 
@@ -675,4 +678,151 @@ class _PortMapCollector(cst.CSTVisitor):
         # Try JSONish for other types
         val = _jsonish_value(expr)
         return None if val is _NOT_JSONISH else val
+
+
+@dataclass(slots=True)
+class _LinkClassCollector(cst.CSTVisitor):
+    """Collect explicit port links declared via @link decorated classes."""
+
+    edges: list[Edge]
+    _workflow_stack: list[str]
+    _seen: set[tuple[str, str, str, str]]
+
+    def __init__(self) -> None:
+        self.edges = []
+        self._workflow_stack = []
+        self._seen = set()
+
+    def visit_FunctionDef(self, node: cst.FunctionDef) -> bool | None:
+        if self._workflow_stack:
+            return False
+
+        kind = _extract_holon_kind(node)
+        if kind != "workflow":
+            return True
+
+        self._workflow_stack.append(node.name.value)
+        return True
+
+    def leave_FunctionDef(self, original_node: cst.FunctionDef) -> None:
+        if self._workflow_stack and self._workflow_stack[-1] == original_node.name.value:
+            self._workflow_stack.pop()
+
+    def visit_ClassDef(self, node: cst.ClassDef) -> None:
+        if not self._workflow_stack:
+            return None
+
+        # Check if this class has @link decorator
+        if not any(_decorator_matches(d.decorator, "link") for d in node.decorators):
+            return None
+
+        # Extract source and target from class attributes
+        attrs: dict[str, object] = {}
+        for stmt in node.body.body:
+            if not isinstance(stmt, cst.SimpleStatementLine):
+                continue
+            if len(stmt.body) != 1:
+                continue
+
+            inner = stmt.body[0]
+            if not isinstance(inner, (cst.AnnAssign, cst.Assign)):
+                continue
+
+            # Handle both `x = value` and `x: type = value`
+            if isinstance(inner, cst.AnnAssign):
+                if not isinstance(inner.target, cst.Name):
+                    continue
+                attr_name = inner.target.value
+                attr_value = inner.value
+            elif isinstance(inner, cst.Assign):
+                if len(inner.targets) != 1:
+                    continue
+                target = inner.targets[0].target
+                if not isinstance(target, cst.Name):
+                    continue
+                attr_name = target.value
+                attr_value = inner.value
+            else:
+                continue
+
+            if attr_value is None:
+                continue
+
+            # Parse the value (expecting tuple or string)
+            parsed = self._parse_attribute_value(attr_value)
+            if parsed is not None:
+                attrs[attr_name] = parsed
+
+        source = attrs.get("source")
+        target = attrs.get("target")
+
+        if not source or not target:
+            return None
+
+        # Source/Target can be string (node_id) or tuple (node_id, port)
+        src_id, src_port = self._normalize_endpoint(source)
+        tgt_id, tgt_port = self._normalize_endpoint(target)
+
+        if not src_id or not tgt_id:
+            return None
+
+        key = (src_id, src_port or "", tgt_id, tgt_port or "")
+        if key in self._seen:
+            return None
+        self._seen.add(key)
+        self.edges.append(
+            Edge(
+                source=src_id,
+                target=tgt_id,
+                source_port=src_port,
+                target_port=tgt_port,
+                kind="link",
+            )
+        )
+        return None
+
+    def _parse_attribute_value(self, expr: cst.BaseExpression) -> object | None:
+        """Parse an attribute value (string, tuple, etc.)."""
+        # Handle strings
+        if isinstance(expr, cst.SimpleString):
+            try:
+                return expr.evaluated_value
+            except Exception:
+                return None
+
+        # Handle tuples: ("node_id", "port")
+        if isinstance(expr, cst.Tuple):
+            elements = []
+            for el in expr.elements:
+                if isinstance(el.value, cst.SimpleString):
+                    try:
+                        elements.append(el.value.evaluated_value)
+                    except Exception:
+                        return None
+                elif isinstance(el.value, cst.Name):
+                    # Handle class name reference
+                    elements.append(el.value.value)
+                else:
+                    return None
+            return tuple(elements)
+
+        return None
+
+    def _normalize_endpoint(self, value: object) -> tuple[str | None, str | None]:
+        """Normalize endpoint to (node_id, port)."""
+        if isinstance(value, str):
+            return value, None
+        if isinstance(value, tuple) and len(value) == 2:
+            node_ref, port = value
+            if not isinstance(node_ref, str) or not isinstance(port, str):
+                return None, None
+            
+            # If node_ref doesn't look like an ID, prefix it with node: (for function refs)
+            if ":" not in node_ref:
+                node_id = f"node:{node_ref}"
+            else:
+                node_id = node_ref
+                
+            return node_id, port
+        return None, None
 

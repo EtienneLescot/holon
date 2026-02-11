@@ -532,27 +532,48 @@ class _AddLinkTransformer(cst.CSTTransformer):
         if not isinstance(updated_node.body, cst.IndentedBlock):
             return updated_node
 
-        link_stmt = cst.SimpleStatementLine(
-            body=[
-                cst.Expr(
-                    value=cst.Call(
-                        func=cst.Name("link"),
-                        args=[
-                            cst.Arg(value=cst.SimpleString(json.dumps(self.source_node_id))),
-                            cst.Arg(value=cst.SimpleString(json.dumps(self.source_port))),
-                            cst.Arg(value=cst.SimpleString(json.dumps(self.target_node_id))),
-                            cst.Arg(value=cst.SimpleString(json.dumps(self.target_port))),
-                        ],
-                    )
-                )
-            ]
+        # Build @link decorated class
+        link_class = cst.ClassDef(
+            name=cst.Name("_"),
+            decorators=[cst.Decorator(decorator=cst.Name("link"))],
+            body=cst.IndentedBlock(
+                body=[
+                    cst.SimpleStatementLine(
+                        body=[
+                            cst.Assign(
+                                targets=[cst.AssignTarget(target=cst.Name("source"))],
+                                value=cst.Tuple(
+                                    elements=[
+                                        cst.Element(value=cst.SimpleString(json.dumps(self.source_node_id))),
+                                        cst.Element(value=cst.SimpleString(json.dumps(self.source_port))),
+                                    ]
+                                ),
+                            )
+                        ]
+                    ),
+                    cst.SimpleStatementLine(
+                        body=[
+                            cst.Assign(
+                                targets=[cst.AssignTarget(target=cst.Name("target"))],
+                                value=cst.Tuple(
+                                    elements=[
+                                        cst.Element(value=cst.SimpleString(json.dumps(self.target_node_id))),
+                                        cst.Element(value=cst.SimpleString(json.dumps(self.target_port))),
+                                    ]
+                                ),
+                            )
+                        ]
+                    ),
+                ]
+            ),
+            leading_lines=[cst.EmptyLine(indent=False, whitespace=cst.SimpleWhitespace(""))],
         )
 
         stmts = list(updated_node.body.body)
         if stmts and isinstance(stmts[-1], cst.SimpleStatementLine) and stmts[-1].body and isinstance(stmts[-1].body[0], cst.Return):
-            stmts.insert(len(stmts) - 1, link_stmt)
+            stmts.insert(len(stmts) - 1, link_class)
         else:
-            stmts.append(link_stmt)
+            stmts.append(link_class)
 
         return updated_node.with_changes(body=updated_node.body.with_changes(body=stmts))
 

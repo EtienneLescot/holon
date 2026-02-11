@@ -17,29 +17,17 @@ def resolve_chat_node(props: dict) -> NodeSpec:
         label=props.get("label", "Chat"),
         inputs=[
             PortSpec(
-                id="in.message",
+                id="in",
                 kind="data",
-                label="Incoming message",
+                label="Response",
                 multi=True
-            ),
-            PortSpec(
-                id="in.control",
-                kind="control",
-                label="Control commands",
-                multi=False
             ),
         ],
         outputs=[
             PortSpec(
-                id="out.message",
+                id="out",
                 kind="data",
-                label="User message",
-                multi=False
-            ),
-            PortSpec(
-                id="out.event",
-                kind="control",
-                label="Events (send/receive/error)",
+                label="Message",
                 multi=False
             ),
         ],

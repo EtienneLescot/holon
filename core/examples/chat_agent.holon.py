@@ -47,7 +47,7 @@ async def main() -> str:
     # Extracts the message content and maps it to the agent's user input field
     @port_map
     class ChatToAgent:
-        source = (ChatNode, "out.message")
+        source = (ChatNode, "out")
         target = (AgentNode, "in.prompt")
         transform = "$.content"  # Extract message content
         target_field = "user"     # Map to user field in agent prompt
@@ -57,7 +57,7 @@ async def main() -> str:
     @port_map
     class AgentToChat:
         source = (AgentNode, "out.response")
-        target = (ChatNode, "in.message")
+        target = (ChatNode, "in")
         # Identity mapping - pass the whole DataEnvelope
     
     # The workflow remains active to maintain the conversation loop

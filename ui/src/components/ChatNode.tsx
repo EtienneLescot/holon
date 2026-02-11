@@ -76,36 +76,22 @@ export const ChatNode = memo(({ id, data }: ChatNodeProps) => {
 
   return (
     <div className={`chat-node chat-node-theme-${theme}`}>
-      {/* Input ports */}
+      {/* Input port */}
       <Handle 
         type="target" 
         position={Position.Left} 
-        id="in.message"
-        style={{ top: '30%' }}
-        title="in.message"
-      />
-      <Handle 
-        type="target" 
-        position={Position.Left} 
-        id="in.control"
-        style={{ top: '70%' }}
-        title="in.control"
+        id="in"
+        style={{ top: '50%' }}
+        title="Response"
       />
       
-      {/* Output ports */}
+      {/* Output port */}
       <Handle 
         type="source" 
         position={Position.Right} 
-        id="out.message"
-        style={{ top: '30%' }}
-        title="out.message"
-      />
-      <Handle 
-        type="source" 
-        position={Position.Right} 
-        id="out.event"
-        style={{ top: '70%' }}
-        title="out.event"
+        id="out"
+        style={{ top: '50%' }}
+        title="Message"
       />
 
       {/* Header */}
