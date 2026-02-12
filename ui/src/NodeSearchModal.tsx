@@ -8,18 +8,25 @@
 import { useCallback, useEffect, useState, useMemo } from "react";
 import { useNodeTypesStore, useUIStore, type NodeTypeDefinition } from "./store";
 import { postToExtension } from "./vscodeBridge";
+import type { CoreNode } from "./protocol";
 
 interface NodeSearchModalProps {
   isOpen: boolean;
   onClose: () => void;
+  existingNodes?: CoreNode[];
 }
 
-export function NodeSearchModal({ isOpen, onClose }: NodeSearchModalProps): JSX.Element | null {
+export function NodeSearchModal({ isOpen, onClose, existingNodes = [] }: NodeSearchModalProps): JSX.Element | null {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
   
   const nodeTypes = useNodeTypesStore(s => s.nodeTypes);
   const isLoading = useNodeTypesStore(s => s.isLoading);
+  
+  // Check if a trigger already exists
+  const hasTrigger = useMemo(() => {
+    return existingNodes.some(node => node.nodeType?.startsWith("trigger."));
+  }, [existingNodes]);
   
   // Debug
   useEffect(() => {
@@ -51,6 +58,11 @@ export function NodeSearchModal({ isOpen, onClose }: NodeSearchModalProps): JSX.
   const filteredNodeTypes = useMemo(() => {
     let filtered = nodeTypes;
     
+    // Filter out triggers if one already exists
+    if (hasTrigger) {
+      filtered = filtered.filter(t => !t.type.startsWith("trigger."));
+    }
+    
     // Filter by category
     if (selectedCategory !== "All") {
       filtered = filtered.filter(t => t.category === selectedCategory);
@@ -68,7 +80,7 @@ export function NodeSearchModal({ isOpen, onClose }: NodeSearchModalProps): JSX.
     }
     
     return filtered;
-  }, [nodeTypes, selectedCategory, searchQuery]);
+  }, [nodeTypes, selectedCategory, searchQuery, hasTrigger]);
   
   // Group by category
   const groupedNodeTypes = useMemo(() => {

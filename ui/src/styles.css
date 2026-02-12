@@ -806,11 +806,13 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 12px;
   padding: 0;
+  padding-bottom: 40px;
   min-width: 400px;
   max-width: 500px;
   display: flex;
   flex-direction: column;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  position: relative;
 }
 
 .chat-node-header {

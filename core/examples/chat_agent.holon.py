@@ -2,20 +2,20 @@
 Chat Agent Example - Interactive conversation loop
 
 This example demonstrates a bidirectional chat system where:
-- User sends messages via the Chat UI node
+- User sends messages via the Chat Trigger
 - Messages are routed to a LangChain agent
-- Agent responses are displayed back in the Chat UI
+- Agent responses loop back to the Chat
 
-Flow: User → ChatNode → Agent → ChatNode → User
+Flow: User → ChatTrigger → Agent → ChatTrigger → User (loop)
 """
 
-from holon import node, workflow, port_map
+from holon import node, workflow, link
 
 
-# Chat UI Node
-@node(type="ui.chat", id="spec:chat:main")
-class ChatNode:
-    """Interactive chat interface for user input/output."""
+# Chat Trigger
+@node(type="trigger.chat", id="node:trigger:chat:conversation")
+class ChatTrigger:
+    """Interactive chat trigger for user input/output."""
     placeholder: str = "Posez votre question..."
     max_history: int = 50
     auto_scroll: bool = True
@@ -24,12 +24,20 @@ class ChatNode:
 
 
 # LangChain Agent Node
-@node(type="langchain.agent", id="spec:agent:assistant")
+@node(type="langchain.agent", id="node:agent:conversational")
 class AgentNode:
     """Conversational LangChain agent."""
     system_prompt: str = """Tu es un assistant utile et bienveillant. 
 Tu réponds de manière concise et claire aux questions de l'utilisateur."""
-    model: str = "gpt-4o"
+    user_prompt: str = ""
+
+
+# LLM Model
+@node(type="llm.model", id="node:llm:agent_model")
+class LlmModel:
+    """GPT-4o model for the agent."""
+    provider: str = "openai"
+    model_name: str = "gpt-4o"
     temperature: float = 0.7
 
 
@@ -40,25 +48,26 @@ async def main() -> str:
     
     The workflow establishes a bidirectional connection:
     1. User messages from chat → agent input
-    2. Agent responses → chat display
+    2. Agent responses → chat display (loop back)
     """
     
-    # Mapping 1: Chat user message → Agent prompt
-    # Extracts the message content and maps it to the agent's user input field
-    @port_map
-    class ChatToAgent:
-        source = (ChatNode, "out")
-        target = (AgentNode, "in.prompt")
-        transform = "$.content"  # Extract message content
-        target_field = "user"     # Map to user field in agent prompt
+    # Chat user message → Agent
+    @link
+    class _:
+        source = ("node:trigger:chat:conversation", "out")
+        target = ("node:agent:conversational", "input")
     
-    # Mapping 2: Agent response → Chat incoming message
-    # Routes agent output back to chat for display
-    @port_map
-    class AgentToChat:
-        source = (AgentNode, "out.response")
-        target = (ChatNode, "in")
-        # Identity mapping - pass the whole DataEnvelope
+    # LLM → Agent (required)
+    @link
+    class _:
+        source = ("node:llm:agent_model", "output")
+        target = ("node:agent:conversational", "llm")
+    
+    # Agent response → Chat (loop back)
+    @link
+    class _:
+        source = ("node:agent:conversational", "output")
+        target = ("node:trigger:chat:conversation", "response")
     
     # The workflow remains active to maintain the conversation loop
     return "Chat system active - waiting for user input"

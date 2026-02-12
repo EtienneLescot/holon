@@ -43,7 +43,7 @@ type UiNodeData = {
   label: string;
   nodeId: string;
   name: string;
-  kind: "node" | "workflow";
+  kind: "node" | "workflow" | "spec";
   nodeType?: string;
   props?: Record<string, unknown>;
   ports: PortSpec[];
@@ -73,6 +73,8 @@ function toReactFlowNodes(
     const position = n.position ?? { x: 40 + idx * 220, y: n.kind === "workflow" ? 60 : 180 };
     const aiStatus = opts.aiByNodeId[n.id];
     const hasError = opts.executionOutput?.[n.id]?.status === "error";
+    // Normalize node_type (Python snake_case) to nodeType (TypeScript camelCase)
+    const nodeType = (n as any).nodeType ?? (n as any).node_type;
     const ports: PortSpec[] =
       n.ports && n.ports.length > 0
         ? n.ports.map((p) => {
@@ -91,7 +93,7 @@ function toReactFlowNodes(
           }
           return out;
         })
-        : inferPorts({ kind: n.kind, nodeType: n.nodeType ?? undefined });
+        : inferPorts({ kind: n.kind, nodeType: nodeType ?? undefined });
     const summary = n.summary;
     const badges = n.badges;
     return {
@@ -103,7 +105,7 @@ function toReactFlowNodes(
         nodeId: n.id,
         name: n.name,
         kind: n.kind,
-        ...(typeof n.nodeType === "string" ? { nodeType: n.nodeType } : {}),
+        ...(typeof nodeType === "string" ? { nodeType } : {}),
         ...(n.props && typeof n.props === "object" ? { props: n.props } : {}),
         ports,
         ...(typeof summary === "string" ? { summary } : {}),
@@ -138,11 +140,28 @@ function toReactFlowEdges(input: CoreEdge[]): Edge[] {
 }
 
 function PortTooltip({ port }: { port: PortSpec }) {
+  const isResponsePort = port.kind === "response";
+  
   return (
     <div className={`portTooltip portTooltip-${port.direction === 'input' ? 'top' : 'bottom'}`}>
       {port.id}
       {port.label && port.label !== port.id && <span style={{ opacity: 0.7, marginLeft: 4 }}>({port.label})</span>}
       {port.kind && <span className="portTooltip-kind">{port.kind}</span>}
+      {isResponsePort && (
+        <div style={{ 
+          marginTop: '6px', 
+          fontSize: '11px', 
+          color: 'rgba(168, 85, 247, 1)', 
+          fontWeight: '500',
+          borderTop: '1px solid rgba(168, 85, 247, 0.3)',
+          paddingTop: '4px'
+        }}>
+          ↺ Loop re-entry point
+          <div style={{ fontSize: '10px', opacity: 0.8, marginTop: '2px' }}>
+            Receives workflow output to continue conversation
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -150,8 +169,11 @@ function PortTooltip({ port }: { port: PortSpec }) {
 function HolonNode(props: NodeProps<UiNodeData>): JSX.Element {
   const { data, selected } = props;
 
-  // If this is a ui.chat node, render ChatNode component
-  if (data.nodeType === "ui.chat") {
+  // Check if this is a trigger node
+  const isTrigger = data.nodeType?.startsWith("trigger.");
+
+  // If this is a ui.chat or trigger.chat node, render ChatNode component
+  if (data.nodeType === "ui.chat" || data.nodeType === "trigger.chat") {
     return <ChatNode id={data.nodeId} data={{ label: data.label, props: data.props || {} }} />;
   }
 
@@ -165,9 +187,12 @@ function HolonNode(props: NodeProps<UiNodeData>): JSX.Element {
 
   const flowInput = data.ports.find((p) => p.direction === "input" && (p.kind === "data" || !p.kind || p.id === "input"));
   const flowOutput = data.ports.find((p) => p.direction === "output" && (p.kind === "data" || !p.kind || p.id === "output"));
+  
+  // Response ports are special - they go to bottom-left for triggers
+  const responsePorts = data.ports.filter((p) => p.kind === "response");
 
   const configPorts = data.ports.filter((p) =>
-    p !== flowInput && p !== flowOutput
+    p !== flowInput && p !== flowOutput && p.kind !== "response"
   );
 
   const nodeClasses = [
@@ -211,7 +236,14 @@ function HolonNode(props: NodeProps<UiNodeData>): JSX.Element {
 
         <div className="holonNodeTop">
           <div>
-            <div className="holonNodeTitle">{data.label}</div>
+            <div className="holonNodeTitle">
+              {data.label}
+              {isTrigger && (
+                <span style={{ marginLeft: '8px', fontSize: '9px', padding: '2px 6px', borderRadius: '4px', background: 'rgba(59, 130, 246, 0.2)', border: '1px solid rgba(59, 130, 246, 0.4)', color: '#60a5fa', fontWeight: 'bold' }}>
+                  ▶ TRIGGER
+                </span>
+              )}
+            </div>
             {data.badges?.length ? (
               <div className="holonPills">
                 {data.badges.map((b) => (
@@ -257,6 +289,62 @@ function HolonNode(props: NodeProps<UiNodeData>): JSX.Element {
         </div>
         {data.aiStatus?.message ? <div className={`holonNodeStatus holonNodeStatus-${status}`}>{data.aiStatus.message}</div> : null}
         {data.summary ? <div className="holonNodeSummary">{data.summary}</div> : null}
+
+        {/* Response Ports (Bottom-Left Corner for triggers) - Re-entry point for conversation loops */}
+        {responsePorts.length > 0 && responsePorts.map((p) => (
+          <div key={p.id} style={{ 
+            position: 'absolute', 
+            left: '4px',  // Coin gauche
+            bottom: '4px', // Coin bas
+            zIndex: 10,
+            display: 'flex',
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: '6px'
+          }}>
+            {/* Loop indicator */}
+            <div style={{ 
+              fontSize: '16px', 
+              color: 'rgba(168, 85, 247, 0.9)',
+              fontWeight: 'bold',
+              textShadow: '0 0 4px rgba(168, 85, 247, 0.5)',
+              lineHeight: '1'
+            }}>
+              ↺
+            </div>
+            <Handle
+              type="target"
+              position={HandlePosition.Left}
+              id={p.id}
+              className={`holonHandle holonHandle-response ${p.multi ? 'holonHandle-multi' : ''}`}
+              style={{ 
+                position: 'relative', 
+                transform: 'none', 
+                background: 'rgba(168, 85, 247, 0.9)',
+                border: '2px solid rgba(168, 85, 247, 1)',
+                boxShadow: '0 0 10px rgba(168, 85, 247, 0.6)',
+                width: '14px',
+                height: '14px'
+              }}
+            />
+            <div style={{ 
+              fontSize: '9px', 
+              color: 'rgba(168, 85, 247, 0.95)', 
+              fontWeight: '700',
+              whiteSpace: 'nowrap',
+              background: 'rgba(168, 85, 247, 0.15)',
+              padding: '3px 6px',
+              borderRadius: '4px',
+              border: '1px solid rgba(168, 85, 247, 0.4)',
+              textShadow: '0 1px 2px rgba(0,0,0,0.3)'
+            }}>
+              {p.label || p.id}
+            </div>
+            <div className="group hidden hover:block">
+              <PortTooltip port={p} />
+            </div>
+          </div>
+        ))}
 
         {/* Config Ports (Bottom) */}
         {configPorts.length > 0 && (
@@ -400,13 +488,11 @@ export default function App(): JSX.Element {
   }, []);
 
   const onRunWorkflow = useCallback(() => {
-    // Find the workflow node name from selected node
-    const workflowNode = coreNodes.find(n => n.id === selectedNodeId && n.kind === "workflow");
-    console.log("onRunWorkflow: selectedNodeId=", selectedNodeId, "workflowNode=", workflowNode);
-    if (!workflowNode) return;
-    postToExtension({ type: "ui.workflow.run", workflowName: workflowNode.name });
-    console.log("posted ui.workflow.run", workflowNode.name);
-  }, [selectedNodeId, coreNodes]);
+    // Execute the main workflow (no longer depends on selecting a workflow node)
+    console.log("onRunWorkflow: executing workflow 'main'");
+    postToExtension({ type: "ui.workflow.run", workflowName: "main" });
+    console.log("posted ui.workflow.run", "main");
+  }, [coreNodes]);
 
   useEffect(() => {
     postToExtension({ type: "ui.ready" });
@@ -708,9 +794,20 @@ export default function App(): JSX.Element {
           onDelete={onDeleteNode}
           onPatch={onPatchNode}
           onOpenCredentials={(provider) => openCredentialsModal(provider)}
-          onRunWorkflow={onRunWorkflow}
           executionOutput={executionOutput}
         />
+
+        {/* Global Workflow Play Button */}
+        <button
+          type="button"
+          onClick={onRunWorkflow}
+          className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 px-16 py-6 rounded-full bg-gradient-to-r from-blue-500 to-purple-500 text-white font-black text-xl uppercase tracking-widest shadow-2xl hover:shadow-blue-500/50 hover:scale-105 transition-all duration-300 flex items-center gap-4"
+        >
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M8 5v14l11-7z"/>
+          </svg>
+          Run Workflow
+        </button>
       </div>
 
       <CredentialsModal
@@ -798,7 +895,7 @@ export default function App(): JSX.Element {
         </div>
       )}
 
-      <NodeSearchModal isOpen={isNodeSearchOpen} onClose={closeNodeSearch} />
+      <NodeSearchModal isOpen={isNodeSearchOpen} onClose={closeNodeSearch} existingNodes={coreNodes} />
 
       {isLibraryOpen && (
         <PortLibraryPanel onClose={closeLibrary} />

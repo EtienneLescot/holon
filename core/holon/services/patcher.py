@@ -434,11 +434,12 @@ class _AddSpecNodeTransformer(cst.CSTTransformer):
 
         # Generate class name from label or type
         if self.label:
-            class_name = "".join(word.capitalize() for word in self.label.replace("-", " ").replace("_", " ").split())
+            class_name = "".join(word.capitalize() for word in self.label.replace("-", " ").replace("_", " ").replace(".", " ").split())
         else:
             class_name = "".join(word.capitalize() for word in self.node_type.split("."))
         
-        # Ensure class name is valid Python identifier
+        # Ensure class name is valid Python identifier (remove any remaining special chars)
+        class_name = "".join(c for c in class_name if c.isalnum())
         if not class_name or not class_name[0].isalpha():
             class_name = "Node" + class_name
         

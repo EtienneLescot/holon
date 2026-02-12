@@ -73,7 +73,7 @@ class Graph(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-PortKind = Literal["data", "llm", "memory", "tool", "parser", "control"]
+PortKind = Literal["data", "llm", "memory", "tool", "parser", "control", "response"]
 
 
 class PortSpec(BaseModel):
@@ -101,6 +101,7 @@ class NodeSpec(BaseModel):
     inputs: list[PortSpec] = Field(default_factory=list, description="Input ports")
     outputs: list[PortSpec] = Field(default_factory=list, description="Output ports")
     props: dict[str, Any] = Field(default_factory=dict, description="JSON-serializable configuration")
+    required_inputs: list[str] = Field(default_factory=list, description="IDs of input ports that must be connected")
 
 
 class EdgeSpec(BaseModel):

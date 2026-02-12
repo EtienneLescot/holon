@@ -1,5 +1,5 @@
 export type PortDirection = "input" | "output";
-export type PortKind = "data" | "llm" | "memory" | "tool" | "parser" | "control";
+export type PortKind = "data" | "llm" | "memory" | "tool" | "parser" | "control" | "response";
 
 export type PortSpec = {
   id: string;
@@ -20,24 +20,22 @@ export const SPEC_TYPE_REGISTRY: Record<string, SpecTypeRegistryEntry> = {
   "langchain.agent": {
     type: "langchain.agent",
     ports: [
-      { id: "input", direction: "input", kind: "data", label: "input" },
-      { id: "llm", direction: "input", kind: "llm", label: "llm" },
-      { id: "memory", direction: "input", kind: "memory", label: "memory" },
-      { id: "tools", direction: "input", kind: "tool", label: "tools", multi: true },
-      { id: "parser", direction: "input", kind: "parser", label: "parser" },
-      { id: "output", direction: "output", kind: "data", label: "output" },
+      { id: "input", direction: "input", kind: "data", label: "Input" },
+      { id: "llm", direction: "input", kind: "llm", label: "LLM" },
+      { id: "memory", direction: "input", kind: "memory", label: "Memory" },
+      { id: "tools", direction: "input", kind: "tool", label: "Tools", multi: true },
+      { id: "output", direction: "output", kind: "data", label: "Output" },
     ],
   },
   // Alias for manual inputs or label mismatches
   "Langchain Agent": {
     type: "langchain.agent",
     ports: [
-      { id: "input", direction: "input", kind: "data", label: "input" },
-      { id: "llm", direction: "input", kind: "llm", label: "llm" },
-      { id: "memory", direction: "input", kind: "memory", label: "memory" },
-      { id: "tools", direction: "input", kind: "tool", label: "tools", multi: true },
-      { id: "parser", direction: "input", kind: "parser", label: "parser" },
-      { id: "output", direction: "output", kind: "data", label: "output" },
+      { id: "input", direction: "input", kind: "data", label: "Input" },
+      { id: "llm", direction: "input", kind: "llm", label: "LLM" },
+      { id: "memory", direction: "input", kind: "memory", label: "Memory" },
+      { id: "tools", direction: "input", kind: "tool", label: "Tools", multi: true },
+      { id: "output", direction: "output", kind: "data", label: "Output" },
     ],
   },
   "llm.model": {
@@ -55,6 +53,17 @@ export const SPEC_TYPE_REGISTRY: Record<string, SpecTypeRegistryEntry> = {
   "parser.json": {
     type: "parser.json",
     ports: [{ id: "parser", direction: "output", kind: "parser", label: "parser" }],
+  },
+  "trigger.manual": {
+    type: "trigger.manual",
+    ports: [{ id: "start", direction: "output", kind: "data", label: "start" }],
+  },
+  "trigger.chat": {
+    type: "trigger.chat",
+    ports: [
+      { id: "response", direction: "input", kind: "response", label: "↩ Response", multi: true },
+      { id: "out", direction: "output", kind: "data", label: "Message" },
+    ],
   },
 };
 

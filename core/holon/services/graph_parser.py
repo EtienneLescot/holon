@@ -43,10 +43,11 @@ def parse_graph(source_code: str) -> Graph:
     class_node_collector = _NodeClassCollector()
     module.visit(class_node_collector)
 
-    node_names = {n.name for n in node_collector.nodes if n.kind == "node"}
-
-    edge_collector = _WorkflowEdgeCollector(node_names=node_names)
-    module.visit(edge_collector)
+    # Legacy: Direct function calls in workflow bodies creating edges
+    # Now we use @link declarations instead, so this is disabled
+    # node_names = {n.name for n in node_collector.nodes if n.kind == "node"}
+    # edge_collector = _WorkflowEdgeCollector(node_names=node_names)
+    # module.visit(edge_collector)
 
     link_collector = _WorkflowLinkCollector()
     module.visit(link_collector)
@@ -56,7 +57,7 @@ def parse_graph(source_code: str) -> Graph:
 
     return Graph(
         nodes=[*node_collector.nodes, *spec_collector.nodes, *class_node_collector.nodes],
-        edges=[*edge_collector.edges, *link_collector.edges, *link_class_collector.edges],
+        edges=[*link_collector.edges, *link_class_collector.edges],
     )
 
 
@@ -90,6 +91,11 @@ class _HolonFunctionCollector(cst.CSTVisitor):
     def visit_FunctionDef(self, node: cst.FunctionDef) -> None:
         kind = _extract_holon_kind(node)
         if kind is None:
+            return None
+
+        # Skip workflow functions - they don't become nodes in the graph
+        # Workflows are just containers for @link declarations
+        if kind == "workflow":
             return None
 
         function_name = node.name.value

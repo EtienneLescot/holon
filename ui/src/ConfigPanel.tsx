@@ -11,7 +11,6 @@ type Props = {
   onDelete?: (nodeId: string) => void;
   onPatch?: (nodeId: string, props: Record<string, any>) => void;
   onOpenCredentials?: (provider: string) => void;
-  onRunWorkflow?: () => void;
   executionOutput?: Record<string, any> | null;
 };
 
@@ -40,15 +39,17 @@ export function ConfigPanel(props: Props): JSX.Element {
   // Get current provider and model from node props
   const currentProvider = props.node?.props?.provider as string | undefined;
   const currentModel = props.node?.props?.model_name as string | undefined;
+  // Normalize node_type (Python snake_case) to nodeType (TypeScript camelCase)
+  const nodeType = props.node ? ((props.node as any).nodeType ?? (props.node as any).node_type) : undefined;
   
   // Load models when provider changes
   useEffect(() => {
-    if (currentProvider && props.node?.nodeType === 'llm.model') {
+    if (currentProvider && nodeType === 'llm.model') {
       const apiKey = credentialsStore.actions.getCredentials(currentProvider)?.api_key;
       console.log('[ConfigPanel] Loading models for provider:', currentProvider, 'has API key:', !!apiKey);
       modelsStore.actions.loadModels(currentProvider, apiKey);
     }
-  }, [currentProvider, props.node?.nodeType, credentialsStore.credentials]);
+  }, [currentProvider, nodeType, credentialsStore.credentials]);
   
   // Get available models for current provider
   const availableModels = currentProvider ? modelsStore.actions.getModels(currentProvider) : [];
@@ -115,20 +116,11 @@ export function ConfigPanel(props: Props): JSX.Element {
               <span className="px-4 py-2 rounded-xl bg-blue-500 text-white text-[10px] font-black uppercase tracking-[0.2em] shadow-lg shadow-blue-500/20">
                 {props.node.kind}
               </span>
-              {props.node.nodeType ? (
+              {nodeType ? (
                 <span className="px-4 py-2 rounded-xl bg-white/5 text-white/80 text-[10px] font-black uppercase tracking-[0.2em] border border-white/10">
-                  {props.node.nodeType}
+                  {nodeType}
                 </span>
               ) : null}
-              {props.onRunWorkflow && (
-                <button
-                  type="button"
-                  onClick={props.onRunWorkflow}
-                  className="ml-auto px-4 py-2 rounded-2xl bg-blue-500 text-white font-bold hover:bg-blue-600 transition"
-                >
-                  Run Workflow
-                </button>
-              )}
             </div>
 
             {/* Nav Tabs */}
@@ -181,7 +173,7 @@ export function ConfigPanel(props: Props): JSX.Element {
                         <div className="space-y-6">
                           {Object.entries(props.node.props).map(([key, value]) => {
                             // Special handling for provider field
-                            if (key === 'provider' && props.node?.nodeType === 'llm.model') {
+                            if (key === 'provider' && nodeType === 'llm.model') {
                               return (
                                 <div key={key} className="space-y-3">
                                   <div className="flex justify-between items-center px-1">
@@ -214,7 +206,7 @@ export function ConfigPanel(props: Props): JSX.Element {
                             }
                             
                             // Special handling for model_name field
-                            if (key === 'model_name' && props.node?.nodeType === 'llm.model') {
+                            if (key === 'model_name' && nodeType === 'llm.model') {
                               return (
                                 <div key={key} className="space-y-3">
                                   <div className="flex justify-between items-center px-1">

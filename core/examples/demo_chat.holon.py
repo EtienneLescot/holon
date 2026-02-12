@@ -1,19 +1,19 @@
 """
-Simple Chat Node Demo
+Simple Chat Trigger Demo
 
-This example demonstrates a standalone chat UI node.
-Messages can be typed and displayed, without connecting to an agent.
-Useful for testing the chat interface and understanding the basic structure.
+This example demonstrates a standalone chat trigger node.
+Messages can be typed and displayed without connecting to an agent.
+Useful for testing the chat interface and understanding triggers.
 """
 
-from holon import node, workflow
+from holon import node, workflow, link
 
 
-# Standalone Chat UI Node
-@node(type="ui.chat", id="spec:chat:demo")
-class ChatDemo:
-    """Interactive chat interface for testing."""
-    placeholder: str = "Type a message to test the chat UI..."
+# Manual Trigger as fallback for testing
+@node(type="trigger.chat", id="node:trigger:chat:demo")
+class ChatTrigger:
+    """Interactive chat trigger for testing."""
+    placeholder: str = "Type a message to test the chat trigger..."
     max_history: int = 20
     auto_scroll: bool = True
     show_timestamps: bool = True
@@ -24,12 +24,15 @@ class ChatDemo:
 @workflow
 async def main() -> str:
     """
-    Simple chat demo workflow.
+    Simple chat trigger demo workflow.
     
-    This creates a standalone chat node that can display messages.
-    To test end-to-end chat functionality, use chat_agent.holon.py instead.
+    This creates a standalone chat trigger. The chat starts the workflow
+    when a user types a message.
     """
-    return "Chat demo loaded - interact with the node in the UI"
+    
+    # No connections needed for standalone trigger demo
+    
+    return "Chat trigger demo loaded - interact with the node in the UI"
 
 
 if __name__ == "__main__":

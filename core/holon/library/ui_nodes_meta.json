@@ -1,8 +1,16 @@
 {
-  "ui.chat": {
+  "trigger.manual": {
+    "label": "Manual Trigger",
+    "category": "Triggers",
+    "description": "Marks the starting point of a manual workflow execution",
+    "icon": "▶️",
+    "defaultProps": {},
+    "configSchema": {}
+  },
+  "trigger.chat": {
     "label": "Chat",
-    "category": "UI",
-    "description": "Interactive chat node for user input/output",
+    "category": "Triggers",
+    "description": "Interactive chat trigger for conversational workflows",
     "icon": "💬",
     "defaultProps": {
       "placeholder": "Tapez votre message...",

@@ -73,6 +73,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // Set waiting state
     get().setWaiting(nodeId, true);
     
+    // Get conversation history (including the message we just added)
+    const conversationHistory = get().getMessages(nodeId).map(msg => ({
+      role: msg.role,
+      content: msg.content,
+      timestamp: msg.timestamp.toISOString(),
+    }));
+    
     // Send to backend via RPC
     const envelope: DataEnvelope = {
       type: 'message',
@@ -86,12 +93,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
       timestamp: new Date().toISOString(),
     };
     
-    // Use the bridge to send message
+    // Use the bridge to send message with conversation history
     if (window.bridge) {
       window.bridge.sendMessage({
         type: 'ui.chat.sendMessage',
         nodeId,
         envelope,
+        conversationHistory,  // Include full conversation history
       });
     }
   },

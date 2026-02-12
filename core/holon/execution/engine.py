@@ -23,6 +23,8 @@ class ExecutionContext:
     node_outputs: dict[str, Any] = field(default_factory=dict)
     execution_trace: list[dict[str, Any]] = field(default_factory=list)
     error_node_id: str | None = None
+    trigger_data: dict[str, Any] | None = None  # Initial data from trigger
+    response_data: dict[str, Any] | None = None  # Response data for trigger response port
 
 
 class ExecutionEngine:
@@ -52,6 +54,16 @@ class ExecutionEngine:
         sys.stderr.write("[ENGINE] Starting graph execution\n")
         sys.stderr.flush()
         
+        # Step 0: Inject trigger initial data if provided
+        if ctx.trigger_data:
+            sys.stderr.write(f"[ENGINE] Injecting trigger data: {list(ctx.trigger_data.keys())}\n")
+            sys.stderr.flush()
+            for node_id, data in ctx.trigger_data.items():
+                # Set the output port of the trigger node with initial data
+                ctx.port_registry.set_output(node_id, "out", data)
+                sys.stderr.write(f"[ENGINE] Injected data for trigger {node_id}.out\n")
+                sys.stderr.flush()
+        
         # Step 1: Register all port connections from edges
         self._register_port_connections(ctx)
         
@@ -65,6 +77,18 @@ class ExecutionEngine:
         
         # Step 4: Execute nodes in order
         result = await self._execute_nodes(ctx, execution_order)
+        
+        # Step 5: Capture response data from trigger response port
+        if ctx.trigger_data:
+            for node_id in ctx.trigger_data.keys():
+                # Check if this trigger has a response port
+                response_value = ctx.port_registry.get_input(node_id, "response")
+                if response_value is not None:
+                    if ctx.response_data is None:
+                        ctx.response_data = {}
+                    ctx.response_data[node_id] = response_value
+                    sys.stderr.write(f"[ENGINE] Captured response data from {node_id}.response\n")
+                    sys.stderr.flush()
         
         sys.stderr.write(f"[ENGINE] Graph execution completed\n")
         sys.stderr.flush()

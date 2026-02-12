@@ -179,6 +179,7 @@ def _make_handler(state: _State) -> type[BaseHTTPRequestHandler]:
                             "delete_node": "/api/delete_node",
                             "delete_link": "/api/delete_link",
                             "execute_workflow": "/api/execute_workflow",
+                            "trigger": "/api/trigger",
                         },
                         "ui_hint": "The UI runs on the Vite dev server (typically http://127.0.0.1:5173/). This devserver is API-only.",
                     },
@@ -238,8 +239,20 @@ def _make_handler(state: _State) -> type[BaseHTTPRequestHandler]:
                 body = self._read_json()
 
                 if self.path == "/api/parse":
+                    from holon.services.validator import validate_graph, ValidationError as ValidError
                     graph = parse_graph(state.source)
-                    self._send_json(200, {"graph": graph.model_dump()})
+                    validation_error = None
+                    try:
+                        # Use non-strict validation during editing (allows 0 or 1 trigger)
+                        validate_graph(graph, strict=False)
+                    except ValidError as e:
+                        validation_error = str(e)
+                    
+                    # Always return graph, include validation error if present
+                    response = {"graph": graph.model_dump()}
+                    if validation_error:
+                        response["validation_error"] = validation_error
+                    self._send_json(200, response)
                     return
 
                 if self.path == "/api/credentials":
@@ -336,13 +349,119 @@ def _make_handler(state: _State) -> type[BaseHTTPRequestHandler]:
                     self._send_json(200, {"source": state.source})
                     return
 
+                if self.path == "/api/trigger":
+                    from holon.services.validator import validate_graph, ValidationError as ValidError
+                    
+                    # Get trigger node ID, message envelope, and optional conversation history
+                    node_id = body.get("nodeId")
+                    envelope = body.get("envelope")
+                    conversation_history = body.get("conversationHistory", [])
+                    
+                    if not isinstance(node_id, str):
+                        raise ValueError("nodeId must be a string")
+                    
+                    if state.file_path is None:
+                        raise ValueError("No file backing the devserver; cannot trigger workflow")
+                    
+                    # Validate graph before execution
+                    try:
+                        graph = parse_graph(state.source)
+                        validate_graph(graph)
+                    except ValidError as e:
+                        sys.stderr.write(f"[API] Validation error: {e}\n")
+                        sys.stderr.flush()
+                        self._send_json(400, {"error": str(e), "validation_error": True, "success": False})
+                        return
+                    
+                    # Inject conversation history into envelope metadata
+                    if envelope and isinstance(envelope, dict):
+                        if "metadata" not in envelope:
+                            envelope["metadata"] = {}
+                        envelope["metadata"]["conversation_history"] = conversation_history
+                    
+                    # Prepare trigger data to inject into the workflow
+                    trigger_data = {node_id: envelope} if envelope else None
+                    
+                    workflow_name = "main"  # Default workflow
+                    
+                    sys.stderr.write(f"[API] Triggering workflow from node '{node_id}' with envelope\\n")
+                    if conversation_history:
+                        sys.stderr.write(f"[API] Including {len(conversation_history)} messages in history\\n")
+                    sys.stderr.flush()
+                    
+                    # Execute workflow with trigger initial data
+                    result = run_workflow_sync(
+                        str(state.file_path),
+                        workflow_name=workflow_name,
+                        trigger_data=trigger_data
+                    )
+                    
+                    sys.stderr.write(f"[API] Workflow triggered: success={result.success}\\n")
+                    sys.stderr.flush()
+                    
+                    # Build response
+                    response = {
+                        "success": result.success,
+                        "output": result.output if result.success else None,
+                    }
+                    
+                    if not result.success:
+                        response["error"] = str(result.error)
+                        response["error_type"] = type(result.error).__name__
+                    
+                    # Extract response from trigger response port
+                    if result.success and result.response_data:
+                        # Get the response for this specific trigger node
+                        if node_id in result.response_data:
+                            agent_response = result.response_data[node_id]
+                            sys.stderr.write(f"[API] Found response data from port {node_id}.response\\n")
+                            sys.stderr.flush()
+                            
+                            # If it's already an envelope, use it; otherwise wrap it
+                            if isinstance(agent_response, dict) and "type" in agent_response:
+                                response["response"] = agent_response
+                            else:
+                                response["response"] = {
+                                    "type": "message",
+                                    "content": str(agent_response),
+                                    "contentType": "text/plain",
+                                    "metadata": {"role": "assistant"},
+                                }
+                        else:
+                            sys.stderr.write(f"[API] No response data found for trigger {node_id}\\n")
+                            sys.stderr.flush()
+                    elif result.success and result.output:
+                        # Fallback to workflow output if no response data
+                        sys.stderr.write(f"[API] Using workflow output as response\\n")
+                        sys.stderr.flush()
+                        response["response"] = {
+                            "type": "message",
+                            "content": str(result.output),
+                            "contentType": "text/plain",
+                            "metadata": {"role": "assistant"},
+                        }
+                    
+                    self._send_json(200, response)
+                    return
+
                 if self.path == "/api/execute_workflow":
+                    from holon.services.validator import validate_graph, ValidationError as ValidError
                     workflow_name = body.get("workflow_name")
                     if not isinstance(workflow_name, str):
                         workflow_name = "main"
 
                     if state.file_path is None:
                         raise ValueError("No file backing the devserver; cannot execute workflow")
+
+                    # Validate graph before execution
+                    try:
+                        graph = parse_graph(state.source)
+                        validate_graph(graph)
+                    except ValidError as e:
+                        sys.stderr.write(f"[API] Validation error: {e}\n")
+                        sys.stderr.flush()
+                        self._send_json(400, {"error": str(e), "validation_error": True, "success": False})
+                        return
 
                     # Run synchronously via helper
                     sys.stderr.write(f"[API] Executing workflow '{workflow_name}' from {state.file_path}\n")

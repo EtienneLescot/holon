@@ -40,12 +40,14 @@ class ExecutionResult:
         error: Exception if execution failed, None otherwise
         error_node_id: ID of the node that failed (if any)
         execution_trace: List of executed nodes with their status
+        response_data: Data captured from trigger response ports
         success: True if execution completed without error
     """
     output: Any = None
     error: Exception | None = None
     error_node_id: str | None = None
     execution_trace: list[dict[str, Any]] | None = None
+    response_data: dict[str, Any] | None = None
     
     @property
     def success(self) -> bool:
@@ -99,6 +101,7 @@ class WorkflowRunner:
         self,
         file_path: str | Path,
         workflow_name: str = "main",
+        trigger_data: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> ExecutionResult:
         """Execute a workflow from a .holon.py file.
@@ -180,7 +183,7 @@ class WorkflowRunner:
             if use_graph_engine:
                 sys.stderr.write(f"[RUNNER] Using graph-based execution engine\n")
                 sys.stderr.flush()
-                return await self._run_workflow_with_engine(file_path, workflow_name, source)
+                return await self._run_workflow_with_engine(file_path, workflow_name, source, trigger_data)
             else:
                 sys.stderr.write(f"[RUNNER] Using legacy direct execution\n")
                 sys.stderr.flush()
@@ -348,7 +351,7 @@ class WorkflowRunner:
         return props
     
     async def _run_workflow_with_engine(
-        self, file_path: Path, workflow_name: str, source: str
+        self, file_path: Path, workflow_name: str, source: str, trigger_data: dict[str, Any] | None = None
     ) -> ExecutionResult:
         """Execute workflow using the graph-based execution engine.
         
@@ -356,6 +359,7 @@ class WorkflowRunner:
             file_path: Path to the workflow file
             workflow_name: Name of the workflow to execute
             source: Source code of the workflow
+            trigger_data: Optional initial data to inject into trigger nodes
         
         Returns:
             ExecutionResult with output or error
@@ -374,8 +378,8 @@ class WorkflowRunner:
             sys.stderr.write(f"[RUNNER] Graph parsed: {len(graph.nodes)} nodes, {len(graph.edges)} edges\n")
             sys.stderr.flush()
             
-            # Create execution context
-            ctx = ExecutionContext(graph=graph)
+            # Create execution context with trigger data
+            ctx = ExecutionContext(graph=graph, trigger_data=trigger_data)
             
             # Create and run execution engine
             engine = ExecutionEngine()
@@ -384,6 +388,7 @@ class WorkflowRunner:
             return ExecutionResult(
                 output=output,
                 execution_trace=ctx.execution_trace,
+                response_data=ctx.response_data,
             )
         
         except Exception as e:
@@ -412,6 +417,7 @@ class WorkflowRunner:
 def run_workflow_sync(
     file_path: str | Path,
     workflow_name: str = "main",
+    trigger_data: dict[str, Any] | None = None,
     **kwargs: Any,
 ) -> ExecutionResult:
     """Synchronous wrapper for running a workflow.
@@ -422,6 +428,7 @@ def run_workflow_sync(
     Args:
         file_path: Path to the .holon.py file
         workflow_name: Name of the workflow function to execute
+        trigger_data: Optional initial data to inject into trigger nodes
         **kwargs: Arguments to pass to the workflow function
     
     Returns:
@@ -434,4 +441,4 @@ def run_workflow_sync(
         ```
     """
     runner = WorkflowRunner()
-    return asyncio.run(runner.run_workflow_file(file_path, workflow_name, **kwargs))
+    return asyncio.run(runner.run_workflow_file(file_path, workflow_name, trigger_data, **kwargs))

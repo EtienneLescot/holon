@@ -20,6 +20,11 @@ interface ChatMessage {
   type: string;
   nodeId: string;
   envelope?: DataEnvelope;
+  conversationHistory?: Array<{
+    role: string;
+    content: string;
+    timestamp: string;
+  }>;
   action?: string;
   event?: {
     action: string;
@@ -36,16 +41,41 @@ export class ChatHandler {
   /**
    * Handle message sent from UI chat node
    */
-  async handleSendMessage(nodeId: string, envelope: DataEnvelope): Promise<void> {
+  async handleSendMessage(
+    nodeId: string,
+    envelope: DataEnvelope,
+    conversationHistory?: Array<{ role: string; content: string; timestamp: string }>
+  ): Promise<void> {
     try {
-      // Emit the message on the out.message port in the PortRegistry
-      await this.rpcClient.call('port.emit', {
-        nodeId,
-        port: 'out.message',
-        value: envelope,
+      // Trigger workflow execution via the new /api/trigger endpoint
+      const response = await fetch('http://localhost:8787/api/trigger', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nodeId,
+          envelope,
+          conversationHistory: conversationHistory || [],
+        }),
       });
 
-      // Notify UI that message was sent successfully
+      if (!response.ok) {
+        throw new Error(`Trigger failed: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+
+      if (result.success && result.response) {
+        // Forward the workflow response to the chat UI
+        this.postMessageToWebview({
+          type: 'chat.messageReceived',
+          nodeId,
+          envelope: result.response,
+        });
+      } else if (!result.success) {
+        throw new Error(result.error || 'Workflow execution failed');
+      }
+
+      // Notify UI that message was sent and processed successfully
       this.postMessageToWebview({
         type: 'chat.event',
         nodeId,
@@ -56,6 +86,7 @@ export class ChatHandler {
       });
     } catch (error) {
       // Notify UI of error
+      console.error('[ChatHandler] Error handling message:', error);
       this.postMessageToWebview({
         type: 'chat.event',
         nodeId,
@@ -131,7 +162,11 @@ export class ChatHandler {
     switch (message.type) {
       case 'ui.chat.sendMessage':
         if (message.envelope) {
-          await this.handleSendMessage(message.nodeId, message.envelope);
+          await this.handleSendMessage(
+            message.nodeId,
+            message.envelope,
+            message.conversationHistory
+          );
         }
         break;
 

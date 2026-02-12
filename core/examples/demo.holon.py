@@ -2,52 +2,43 @@ from __future__ import annotations
 
 from holon import node, workflow, link, spec
 
-@node(type = "langchain.agent", id = "node:langchain_agent:eac30101-47ea-4054-86e5-c5bd556e5611")
+@node(type = "langchain.agent", id = "node:langchain_agent:e054688c-a21a-4a70-8946-9e67354e56bb")
 class LangchainAgent:
     "LangChain Agent"
     system_prompt = "You are a helpful assistant."
     user_prompt = "Tell me a story."
 
-@node(type = "llm.model", id = "node:llm_model:34370cdf-5a9e-4c92-ae47-f4179ac26bbc")
-class LlmModel:
-    "LLM Model"
-    provider = "openai"
-    model_name = "gpt-4o"
-    temperature = 0.7
+@node(type = "langchain.agent", id = "node:langchain_agent:076bd2ef-e4c7-44ac-8ff5-c623e795f6cd")
+class LangchainAgent:
+    "LangChain Agent"
+    system_prompt = "You are a helpful assistant."
+    user_prompt = "Tell me a story."
 
-@node(type = "ui.chat", id = "node:ui_chat:010180e3-0edd-471c-bc29-22149d1ae7e9")
-class Chat:
-    "Chat"
-    placeholder = "Tapez votre message..."
-    max_history = 50
-    auto_scroll = True
-    show_timestamps = True
-    allow_markdown = True
-    theme = "default"
+@node(type = "trigger.chat", id = "node:trigger_chat:86ba6668-5e2e-4fd7-8d2f-cbaf4707d361")
+class TriggerChat:
+    "trigger.chat"
 
 
 @workflow
 async def main() -> str:
-    """Simple workflow: connect LLM to agent and execute."""
+    """Simple chat workflow: Chat trigger → Agent → back to Chat."""
 
+    # Chat user message → Agent input
     @link
     class _:
-        source = ("workflow:main", "start")
-        target = ("node:ui_chat:010180e3-0edd-471c-bc29-22149d1ae7e9", "in")
+        source = ("node:trigger:chat:main", "out")
+        target = ("node:langchain_agent:assistant", "input")
 
+    # LLM → Agent (required connection)
     @link
     class _:
-        source = ("node:ui_chat:010180e3-0edd-471c-bc29-22149d1ae7e9", "out")
-        target = ("node:langchain_agent:eac30101-47ea-4054-86e5-c5bd556e5611", "input")
+        source = ("node:llm_model:gpt4", "output")
+        target = ("node:langchain_agent:assistant", "llm")
 
+    # Agent response → Chat (loop back)
     @link
     class _:
-        source = ("node:llm_model:34370cdf-5a9e-4c92-ae47-f4179ac26bbc", "output")
-        target = ("node:langchain_agent:eac30101-47ea-4054-86e5-c5bd556e5611", "llm")
-
-    @link
-    class _:
-        source = ("node:langchain_agent:eac30101-47ea-4054-86e5-c5bd556e5611", "output")
-        target = ("node:ui_chat:010180e3-0edd-471c-bc29-22149d1ae7e9", "in")
+        source = ("node:langchain_agent:assistant", "output")
+        target = ("node:trigger:chat:main", "response")
     
-    return "Workflow will execute via graph engine"
+    return "Chat workflow active"
