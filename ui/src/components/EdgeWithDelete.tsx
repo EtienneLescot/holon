@@ -1,5 +1,13 @@
 import React from 'react';
-import { BaseEdge, EdgeLabelRenderer, getBezierPath, type EdgeProps } from 'reactflow';
+import {
+    BaseEdge,
+    EdgeLabelRenderer,
+    getBezierPath,
+    getSmoothStepPath,
+    Position,
+    useStore,
+    type EdgeProps,
+} from 'reactflow';
 import { useUIStore } from '../store';
 import { postToHost } from '../vscodeBridge';
 
@@ -18,14 +26,49 @@ export default function EdgeWithDelete({
     sourceHandleId,
     targetHandleId,
 }: EdgeProps) {
-    const [edgePath, labelX, labelY] = getBezierPath({
-        sourceX,
-        sourceY,
-        sourcePosition,
-        targetX,
-        targetY,
-        targetPosition,
-    });
+    const targetInternalNode = useStore((state: any) => state.nodeInternals?.get?.(target));
+
+    const shouldRouteAroundTarget =
+        targetPosition === Position.Left &&
+        Boolean(targetInternalNode?.positionAbsolute) &&
+        typeof targetInternalNode?.height === 'number';
+
+    let edgePath: string;
+    let labelX: number;
+    let labelY: number;
+
+    if (shouldRouteAroundTarget) {
+        const nodeTopY = targetInternalNode.positionAbsolute.y;
+        const nodeBottomY = nodeTopY + targetInternalNode.height;
+        const routePadding = 44;
+
+        const topLaneY = nodeTopY - routePadding;
+        const bottomLaneY = nodeBottomY + routePadding;
+
+        const routeViaTop = Math.abs(sourceY - topLaneY) <= Math.abs(sourceY - bottomLaneY);
+        const centerY = routeViaTop ? topLaneY : bottomLaneY;
+
+        [edgePath, labelX, labelY] = getSmoothStepPath({
+            sourceX,
+            sourceY,
+            sourcePosition,
+            targetX,
+            targetY,
+            targetPosition,
+            centerY,
+            borderRadius: 16,
+            offset: 32,
+        });
+    } else {
+        [edgePath, labelX, labelY] = getBezierPath({
+            sourceX,
+            sourceY,
+            sourcePosition,
+            targetX,
+            targetY,
+            targetPosition,
+        });
+    }
 
     const [isHovered, setIsHovered] = React.useState(false);
 

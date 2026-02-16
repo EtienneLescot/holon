@@ -76,55 +76,47 @@ export const ChatNode = memo(({ id, data }: ChatNodeProps) => {
 
   return (
     <div className={`chat-node chat-node-theme-${theme}`}>
-      {/* Flowback Response Port (Bottom-Left Corner) - Loop re-entry point */}
-      <div style={{ 
-        position: 'absolute', 
-        left: '8px',
-        bottom: '8px',
-        zIndex: 10,
-        display: 'flex',
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: '6px'
+      {/* Response Port (Bottom-Left Corner) */}
+      <div style={{
+        position: 'absolute',
+        left: '0px',
+        bottom: '0px',
+        transform: 'none',
+        zIndex: 12,
       }}>
-        {/* Loop indicator */}
-        <div style={{ 
-          fontSize: '16px', 
-          color: 'rgba(168, 85, 247, 0.9)',
-          fontWeight: 'bold',
-          textShadow: '0 0 4px rgba(168, 85, 247, 0.5)',
-          lineHeight: '1'
-        }}>
-          ↺
-        </div>
-        <Handle 
-          type="target" 
-          position={Position.Left} 
+        <Handle
+          type="target"
+          position={Position.Left}
           id="in"
-          style={{ 
+          style={{
             position: 'relative',
             transform: 'none',
             background: 'rgba(168, 85, 247, 0.9)',
             border: '2px solid rgba(168, 85, 247, 1)',
             boxShadow: '0 0 10px rgba(168, 85, 247, 0.6)',
-            width: '14px',
-            height: '14px'
+            width: '13px',
+            height: '13px'
           }}
           title="Loop re-entry point - Receives workflow output to continue conversation"
         />
-        <div style={{ 
-          fontSize: '9px', 
-          color: 'rgba(168, 85, 247, 0.95)', 
-          fontWeight: '700',
-          whiteSpace: 'nowrap',
-          background: 'rgba(168, 85, 247, 0.15)',
-          padding: '3px 6px',
-          borderRadius: '4px',
-          border: '1px solid rgba(168, 85, 247, 0.4)',
-          textShadow: '0 1px 2px rgba(0,0,0,0.3)'
-        }}>
-          ↩ Response
-        </div>
+      </div>
+
+      <div style={{
+        position: 'absolute',
+        left: '18px',
+        bottom: '2px',
+        zIndex: 11,
+        fontSize: '9px',
+        color: 'rgba(168, 85, 247, 0.95)',
+        fontWeight: '700',
+        whiteSpace: 'nowrap',
+        background: 'rgba(168, 85, 247, 0.15)',
+        padding: '3px 6px',
+        borderRadius: '4px',
+        border: '1px solid rgba(168, 85, 247, 0.4)',
+        textShadow: '0 1px 2px rgba(0,0,0,0.3)'
+      }}>
+        Response
       </div>
       
       {/* Output port */}
