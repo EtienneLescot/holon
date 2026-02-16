@@ -188,8 +188,8 @@ function HolonNode(props: NodeProps<UiNodeData>): JSX.Element {
     e.stopPropagation();
   };
 
-  const flowInput = data.ports.find((p) => p.direction === "input" && (p.kind === "data" || !p.kind || p.id === "input"));
-  const flowOutput = data.ports.find((p) => p.direction === "output" && (p.kind === "data" || !p.kind || p.id === "output"));
+  const flowInput = data.ports.find((p) => p.direction === "input" && (p.kind === "data" || !p.kind));
+  const flowOutput = data.ports.find((p) => p.direction === "output" && (p.kind === "data" || !p.kind));
   
   // Response ports are special - they go to bottom-left for triggers
   const responsePorts = data.ports.filter((p) => p.kind === "response");
@@ -357,7 +357,7 @@ function HolonNode(props: NodeProps<UiNodeData>): JSX.Element {
             className="holonNodeProviderPorts"
             style={{
               position: 'absolute',
-              top: '-18px',
+              top: '-8px',
               left: '0',
               right: '0',
               zIndex: 10,
@@ -377,9 +377,6 @@ function HolonNode(props: NodeProps<UiNodeData>): JSX.Element {
                     className={`holonHandle holonHandle-${p.kind ?? "data"} ${p.multi ? 'holonHandle-multi' : ''}`}
                     style={{ position: 'relative', transform: 'none', left: 0, top: 0 }}
                   />
-                </div>
-                <div style={{ fontSize: '9px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.55)', marginTop: '2px', textAlign: 'center' }}>
-                  {p.label || p.id}
                 </div>
                 <div style={{ opacity: 0, transition: 'opacity 0.2s', position: 'absolute', pointerEvents: 'none' }} className="group-hover:opacity-100">
                   <PortTooltip port={p} />
