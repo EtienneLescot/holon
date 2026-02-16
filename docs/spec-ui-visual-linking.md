@@ -43,6 +43,7 @@ Chaque port déclaré dans le code est rendu sur la node sous forme d’un **poi
 **Placement proposé :**
 - **Flow (data)** : dot unique à **gauche** de la node (au centre vertical).
 - **Autres ports** (LLM, memory, tools, parser, control) : dots **regroupés en dessous** (zone “config”).
+- **Exception — nodes provider** (`llm.model`, `memory.*`, `tool.*`) : dot d’attache **au-dessus** de la node.
 
 Autres règles :
 - **Multi-input** (port multi) : dot avec anneau (outline) ou badge visuel.
@@ -89,13 +90,29 @@ Ce lien **n’est pas un lien comme les autres** : il incarne la continuité du 
   - `role: "flow" | "config"`
 - Cela permet d’être explicite tout en restant **code-first**.
 
+### 2.4) Rôle de connexion des types de node (`connectionRole`)
+
+Pour distinguer explicitement les nodes de **cheminement** des nodes **provider**,
+le catalogue de types expose un champ optionnel :
+
+```ts
+connectionRole: "flow" | "provider"
+```
+
+Règles UI associées :
+- `flow` (défaut): ports config affichés en bas.
+- `provider`: ports d’attache affichés en haut (dot au-dessus de la node).
+
+Ce champ est porté au niveau **type de node** (pas au niveau edge), ce qui permet
+d’appliquer la convention visuelle de manière stable et cohérente.
+
 **Affichage UI** :
 - Le port **flow** est **isolé à gauche** de la node.
 - Les ports **config** sont **regroupés en dessous** (zone “Config”).
 
 ---
 
-### 2.4) Suppression d’un lien via une poubelle (Trash on Edge)
+### 2.5) Suppression d’un lien via une poubelle (Trash on Edge)
 
 Chaque lien dessiné dans l’UI doit afficher une **poubelle au centre**.
 

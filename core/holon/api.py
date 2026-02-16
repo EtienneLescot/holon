@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from holon.registry import get_global_registry
 
 # Import modules to register their resolvers
@@ -9,7 +11,7 @@ import holon.library.langchain_registry  # noqa: F401
 import holon.library.ui_nodes  # noqa: F401
 
 
-def get_available_node_types() -> list[dict[str, str]]:
+def get_available_node_types() -> list[dict[str, Any]]:
     """Get all registered spec types from the registry.
     
     Returns:
@@ -32,6 +34,7 @@ def get_available_node_types() -> list[dict[str, str]]:
             "category": "AI",
             "description": "Large Language Model (OpenAI, Anthropic, etc.)",
             "defaultProps": {"provider": "openai", "model_name": "gpt-4o", "temperature": 0.7},
+            "connectionRole": "provider",
         },
         "langchain.agent": {
             "label": "LangChain Agent",
@@ -47,24 +50,28 @@ def get_available_node_types() -> list[dict[str, str]]:
             "category": "Memory",
             "description": "Simple message buffer for conversation history",
             "defaultProps": {"maxMessages": 20},
+            "connectionRole": "provider",
         },
         "langchain.memory.buffer": {
             "label": "LangChain Memory",
             "category": "Memory",
             "description": "LangChain conversation buffer memory",
             "defaultProps": {"k": 5},
+            "connectionRole": "provider",
         },
         "tool.function": {
             "label": "Function Tool",
             "category": "Tools",
             "description": "Custom function tool",
             "defaultProps": {"name": "my_tool"},
+            "connectionRole": "provider",
         },
         "langchain.tool": {
             "label": "LangChain Tool",
             "category": "Tools",
             "description": "LangChain-compatible tool",
             "defaultProps": {"name": "example_tool"},
+            "connectionRole": "provider",
         },
         "parser.json": {
             "label": "JSON Parser",
@@ -95,6 +102,7 @@ def get_available_node_types() -> list[dict[str, str]]:
             "category": meta.get("category", "Other"),
             "description": meta.get("description", ""),
             "defaultProps": meta.get("defaultProps", {}),
+            "connectionRole": meta.get("connectionRole", "flow"),
         })
     
     return node_types

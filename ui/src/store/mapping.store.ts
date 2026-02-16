@@ -33,6 +33,7 @@ export interface NodeWithPorts {
   id: string;
   label: string;
   type: string;
+  connectionRole?: 'flow' | 'provider';
   ports: {
     inputs: PortInfo[];
     outputs: PortInfo[];

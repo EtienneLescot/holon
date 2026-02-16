@@ -7,7 +7,7 @@
  */
 
 import { useMappingStore, type PortMapping } from '../store';
-import { postToExtension } from '../vscodeBridge';
+import { postToHost } from '../vscodeBridge';
 
 interface EdgeInspectorProps {
   edgeId: string;
@@ -44,7 +44,7 @@ export function EdgeInspector({
   const handleViewCode = () => {
     // Send RPC to scroll to @port_map in editor
     if (mapping) {
-      postToExtension({
+      postToHost({
         type: 'ui.mapping.viewCode',
         payload: {
           mappingId: mapping.id,
@@ -55,7 +55,7 @@ export function EdgeInspector({
 
   const handleDelete = () => {
     if (mapping && confirm('Delete this port mapping?')) {
-      postToExtension({
+      postToHost({
         type: 'ui.mapping.delete',
         payload: {
           mappingId: mapping.id,

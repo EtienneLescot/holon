@@ -1,5 +1,6 @@
 export type PortDirection = "input" | "output";
 export type PortKind = "data" | "llm" | "memory" | "tool" | "parser" | "control" | "response";
+export type NodeConnectionRole = "flow" | "provider";
 
 export type PortSpec = {
   id: string;
@@ -12,6 +13,7 @@ export type PortSpec = {
 export type SpecTypeRegistryEntry = {
   type: string;
   ports: PortSpec[];
+  connectionRole?: NodeConnectionRole;
 };
 
 // Minimal registry of known spec node types and their port shapes.
@@ -40,15 +42,33 @@ export const SPEC_TYPE_REGISTRY: Record<string, SpecTypeRegistryEntry> = {
   },
   "llm.model": {
     type: "llm.model",
-    ports: [{ id: "llm", direction: "output", kind: "llm", label: "llm" }],
+    ports: [{ id: "output", direction: "output", kind: "llm", label: "LLM" }],
+    connectionRole: "provider",
   },
   "memory.buffer": {
     type: "memory.buffer",
     ports: [{ id: "memory", direction: "output", kind: "memory", label: "memory" }],
+    connectionRole: "provider",
+  },
+  "langchain.memory.buffer": {
+    type: "langchain.memory.buffer",
+    ports: [{ id: "memory", direction: "output", kind: "memory", label: "memory" }],
+    connectionRole: "provider",
+  },
+  "tool.function": {
+    type: "tool.function",
+    ports: [{ id: "tool", direction: "output", kind: "tool", label: "tool" }],
+    connectionRole: "provider",
+  },
+  "langchain.tool": {
+    type: "langchain.tool",
+    ports: [{ id: "tool", direction: "output", kind: "tool", label: "tool" }],
+    connectionRole: "provider",
   },
   "tool.example": {
     type: "tool.example",
     ports: [{ id: "tool", direction: "output", kind: "tool", label: "tool" }],
+    connectionRole: "provider",
   },
   "parser.json": {
     type: "parser.json",
@@ -89,4 +109,27 @@ export function inferPorts(input: { kind: "node" | "workflow" | "spec"; nodeType
     { id: "input", direction: "input", kind: "data", label: "input" },
     { id: "output", direction: "output", kind: "data", label: "output" },
   ];
+}
+
+export function getNodeConnectionRole(nodeType?: string | null): NodeConnectionRole {
+  if (!nodeType) {
+    return "flow";
+  }
+
+  const fromRegistry = SPEC_TYPE_REGISTRY[nodeType]?.connectionRole;
+  if (fromRegistry) {
+    return fromRegistry;
+  }
+
+  if (
+    nodeType === "llm.model" ||
+    nodeType.startsWith("memory.") ||
+    nodeType.startsWith("langchain.memory") ||
+    nodeType.startsWith("tool.") ||
+    nodeType.startsWith("langchain.tool")
+  ) {
+    return "provider";
+  }
+
+  return "flow";
 }

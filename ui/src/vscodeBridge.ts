@@ -69,11 +69,6 @@ export function postToHost(message: ToExtensionMessage): void {
   api.postMessage(message);
 }
 
-// Backward-compatible alias (legacy name used in several UI modules).
-export function postToExtension(message: ToExtensionMessage): void {
-  postToHost(message);
-}
-
 function isVsCodeApi(value: unknown): value is VsCodeApi {
   if (typeof value !== "object" || value === null) {
     return false;

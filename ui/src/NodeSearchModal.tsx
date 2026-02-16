@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect, useState, useMemo } from "react";
 import { useNodeTypesStore, useUIStore, type NodeTypeDefinition } from "./store";
-import { postToExtension } from "./vscodeBridge";
+import { postToHost } from "./vscodeBridge";
 import type { CoreNode } from "./protocol";
 
 interface NodeSearchModalProps {
@@ -19,6 +19,7 @@ interface NodeSearchModalProps {
 export function NodeSearchModal({ isOpen, onClose, existingNodes = [] }: NodeSearchModalProps): JSX.Element | null {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
+  const [selectedRole, setSelectedRole] = useState<"all" | "flow" | "provider">("all");
   
   const nodeTypes = useNodeTypesStore(s => s.nodeTypes);
   const isLoading = useNodeTypesStore(s => s.isLoading);
@@ -42,7 +43,7 @@ export function NodeSearchModal({ isOpen, onClose, existingNodes = [] }: NodeSea
   // Request node types when modal opens if we don't have any
   useEffect(() => {
     if (isOpen && nodeTypes.length === 0) {
-      postToExtension({ type: "ui.nodeTypes.request" });
+      postToHost({ type: "ui.nodeTypes.request" });
     }
   }, [isOpen, nodeTypes.length]);
   
@@ -51,6 +52,7 @@ export function NodeSearchModal({ isOpen, onClose, existingNodes = [] }: NodeSea
     if (isOpen) {
       setSearchQuery("");
       setSelectedCategory("All");
+      setSelectedRole("all");
     }
   }, [isOpen]);
   
@@ -67,6 +69,11 @@ export function NodeSearchModal({ isOpen, onClose, existingNodes = [] }: NodeSea
     if (selectedCategory !== "All") {
       filtered = filtered.filter(t => t.category === selectedCategory);
     }
+
+    // Filter by connection role
+    if (selectedRole !== "all") {
+      filtered = filtered.filter(t => (t.connectionRole ?? "flow") === selectedRole);
+    }
     
     // Filter by search query
     if (searchQuery.trim()) {
@@ -80,7 +87,7 @@ export function NodeSearchModal({ isOpen, onClose, existingNodes = [] }: NodeSea
     }
     
     return filtered;
-  }, [nodeTypes, selectedCategory, searchQuery, hasTrigger]);
+  }, [nodeTypes, selectedCategory, selectedRole, searchQuery, hasTrigger]);
   
   // Group by category
   const groupedNodeTypes = useMemo(() => {
@@ -105,7 +112,7 @@ export function NodeSearchModal({ isOpen, onClose, existingNodes = [] }: NodeSea
     };
     
     // Send node creation message - generates @node class with type
-    postToExtension({
+    postToHost({
       type: "ui.nodeCreated",
       node: {
         id: `node:${nodeType.type.replace(/\./g, '_')}:${randomId()}`,
@@ -166,6 +173,27 @@ export function NodeSearchModal({ isOpen, onClose, existingNodes = [] }: NodeSea
               </button>
             ))}
           </div>
+
+          <div className="holonNodeCategoryFilters" style={{ marginTop: '8px' }}>
+            <button
+              className={`holonCategoryButton ${selectedRole === "all" ? "active" : ""}`}
+              onClick={() => setSelectedRole("all")}
+            >
+              All Roles
+            </button>
+            <button
+              className={`holonCategoryButton ${selectedRole === "flow" ? "active" : ""}`}
+              onClick={() => setSelectedRole("flow")}
+            >
+              Flow
+            </button>
+            <button
+              className={`holonCategoryButton ${selectedRole === "provider" ? "active" : ""}`}
+              onClick={() => setSelectedRole("provider")}
+            >
+              Provider
+            </button>
+          </div>
         </div>
         
         {/* Node types list */}
@@ -196,7 +224,23 @@ export function NodeSearchModal({ isOpen, onClose, existingNodes = [] }: NodeSea
                       className="holonNodeTypeCard"
                       onClick={() => handleSelectNodeType(nodeType)}
                     >
-                      <div className="holonNodeTypeLabel">{nodeType.label}</div>
+                      <div className="holonNodeTypeLabel" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span>{nodeType.label}</span>
+                        <span
+                          style={{
+                            fontSize: '9px',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.08em',
+                            padding: '2px 6px',
+                            borderRadius: '999px',
+                            background: (nodeType.connectionRole ?? 'flow') === 'provider' ? 'rgba(99, 102, 241, 0.2)' : 'rgba(16, 185, 129, 0.2)',
+                            color: (nodeType.connectionRole ?? 'flow') === 'provider' ? 'rgb(165, 180, 252)' : 'rgb(110, 231, 183)',
+                            border: (nodeType.connectionRole ?? 'flow') === 'provider' ? '1px solid rgba(99, 102, 241, 0.4)' : '1px solid rgba(16, 185, 129, 0.4)',
+                          }}
+                        >
+                          {(nodeType.connectionRole ?? 'flow') === 'provider' ? 'Provider' : 'Flow'}
+                        </span>
+                      </div>
                       <div className="holonNodeTypeId">{nodeType.type}</div>
                       {nodeType.description && (
                         <div className="holonNodeTypeDescription">{nodeType.description}</div>

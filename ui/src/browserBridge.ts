@@ -27,7 +27,7 @@ const SPEC_TYPE_REGISTRY: Record<string, { type: string; ports: PortSpec[] }> = 
   },
   "llm.model": {
     type: "llm.model",
-    ports: [{ id: "llm", direction: "output", kind: "llm", label: "LLM" }],
+    ports: [{ id: "output", direction: "output", kind: "llm", label: "LLM" }],
   },
   "memory.buffer": {
     type: "memory.buffer",

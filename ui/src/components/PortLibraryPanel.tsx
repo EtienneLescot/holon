@@ -7,9 +7,9 @@
 
 import { useState, useMemo, useEffect } from 'react';
 import { useGraphStore, useMappingStore, type PortInfo, type NodeWithPorts } from '../store';
-import { inferPorts } from '../ports';
+import { getNodeConnectionRole, inferPorts } from '../ports';
 import { MappingEditorModal } from './MappingEditorModal';
-import { postToExtension } from '../vscodeBridge';
+import { postToHost } from '../vscodeBridge';
 
 interface PortLibraryPanelProps {
   onClose: () => void;
@@ -55,6 +55,7 @@ export function PortLibraryPanel({ onClose }: PortLibraryPanelProps) {
         id: node.id,
         label: node.label || node.name,
         type: node.nodeType || '',
+        connectionRole: getNodeConnectionRole(node.nodeType || null),
         ports: { inputs, outputs },
       };
     });
@@ -127,7 +128,7 @@ export function PortLibraryPanel({ onClose }: PortLibraryPanelProps) {
 
   const handleMappingSave = (mappingConfig: any) => {
     // Send RPC to extension to generate and insert @port_map code
-    postToExtension({
+    postToHost({
       type: 'ui.mapping.insertCode',
       payload: {
         source: editorSource,
@@ -231,12 +232,24 @@ export function PortLibraryPanel({ onClose }: PortLibraryPanelProps) {
                   {node.type}
                 </div>
               )}
+              <div className="text-[10px] mb-2">
+                <span
+                  className="px-2 py-0.5 rounded-full border"
+                  style={{
+                    background: node.connectionRole === 'provider' ? 'rgba(99, 102, 241, 0.12)' : 'rgba(16, 185, 129, 0.12)',
+                    color: node.connectionRole === 'provider' ? 'rgb(165, 180, 252)' : 'rgb(110, 231, 183)',
+                    borderColor: node.connectionRole === 'provider' ? 'rgba(99, 102, 241, 0.4)' : 'rgba(16, 185, 129, 0.4)',
+                  }}
+                >
+                  {node.connectionRole === 'provider' ? 'Provider' : 'Flow'}
+                </span>
+              </div>
 
               {/* Inputs */}
               {node.ports.inputs.length > 0 && (
                 <div className="mb-2">
                   <div className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">
-                    Inputs:
+                    Flow Inputs:
                   </div>
                   <div className="space-y-1">
                     {node.ports.inputs.map((port) => (
@@ -270,7 +283,7 @@ export function PortLibraryPanel({ onClose }: PortLibraryPanelProps) {
               {node.ports.outputs.length > 0 && (
                 <div>
                   <div className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">
-                    Outputs:
+                    {node.connectionRole === 'provider' ? 'Provider Outputs:' : 'Flow Outputs:'}
                   </div>
                   <div className="space-y-1">
                     {node.ports.outputs.map((port) => (

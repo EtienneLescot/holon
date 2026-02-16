@@ -4,6 +4,7 @@ import { useCredentialsStore } from "./store/credentials.store";
 import { useModelsStore } from "./store/models.store";
 import CustomSelect from './components/CustomSelect';
 import { DataBrowserModal } from './components/DataBrowserModal';
+import { getNodeConnectionRole } from './ports';
 
 type Props = {
   node: CoreNode | null;
@@ -41,6 +42,7 @@ export function ConfigPanel(props: Props): JSX.Element {
   const currentModel = props.node?.props?.model_name as string | undefined;
   // Normalize node_type (Python snake_case) to nodeType (TypeScript camelCase)
   const nodeType = props.node ? ((props.node as any).nodeType ?? (props.node as any).node_type) : undefined;
+  const connectionRole = getNodeConnectionRole(nodeType ?? null);
   
   // Load models when provider changes
   useEffect(() => {
@@ -121,6 +123,16 @@ export function ConfigPanel(props: Props): JSX.Element {
                   {nodeType}
                 </span>
               ) : null}
+              <span
+                className="px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] border"
+                style={{
+                  background: connectionRole === 'provider' ? 'rgba(99, 102, 241, 0.12)' : 'rgba(16, 185, 129, 0.12)',
+                  color: connectionRole === 'provider' ? 'rgb(165, 180, 252)' : 'rgb(110, 231, 183)',
+                  borderColor: connectionRole === 'provider' ? 'rgba(99, 102, 241, 0.4)' : 'rgba(16, 185, 129, 0.4)',
+                }}
+              >
+                {connectionRole === 'provider' ? 'Provider Node' : 'Flow Node'}
+              </span>
             </div>
 
             {/* Nav Tabs */}

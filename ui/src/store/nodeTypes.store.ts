@@ -20,6 +20,7 @@ export interface NodeTypeDefinition {
   description?: string;
   defaultProps?: Record<string, unknown>;
   icon?: string;
+  connectionRole?: "flow" | "provider";
 }
 
 export interface NodeTypesStore {

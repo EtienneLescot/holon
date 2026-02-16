@@ -21,8 +21,8 @@ import dagre from "dagre";
 import EdgeWithDelete from "./components/EdgeWithDelete";
 
 import { ToUiMessageSchema, type CoreEdge, type CoreNode } from "./protocol";
-import { postToExtension } from "./vscodeBridge";
-import { inferPorts, type PortSpec } from "./ports";
+import { postToHost } from "./vscodeBridge";
+import { inferPorts, getNodeConnectionRole, type NodeConnectionRole, type PortSpec } from "./ports";
 import { ConfigPanel } from "./ConfigPanel";
 import { CredentialsModal } from "./CredentialsModal";
 import { NodeSearchModal } from "./NodeSearchModal";
@@ -45,6 +45,7 @@ type UiNodeData = {
   name: string;
   kind: "node" | "workflow" | "spec";
   nodeType?: string;
+  connectionRole: NodeConnectionRole;
   props?: Record<string, unknown>;
   ports: PortSpec[];
   summary?: string;
@@ -106,6 +107,7 @@ function toReactFlowNodes(
         name: n.name,
         kind: n.kind,
         ...(typeof nodeType === "string" ? { nodeType } : {}),
+        connectionRole: getNodeConnectionRole(nodeType),
         ...(n.props && typeof n.props === "object" ? { props: n.props } : {}),
         ports,
         ...(typeof summary === "string" ? { summary } : {}),
@@ -171,6 +173,7 @@ function HolonNode(props: NodeProps<UiNodeData>): JSX.Element {
 
   // Check if this is a trigger node
   const isTrigger = data.nodeType?.startsWith("trigger.");
+  const isProviderNode = data.connectionRole === "provider";
 
   // If this is a ui.chat or trigger.chat node, render ChatNode component
   if (data.nodeType === "ui.chat" || data.nodeType === "trigger.chat") {
@@ -194,6 +197,8 @@ function HolonNode(props: NodeProps<UiNodeData>): JSX.Element {
   const configPorts = data.ports.filter((p) =>
     p !== flowInput && p !== flowOutput && p.kind !== "response"
   );
+  const topConfigPorts = isProviderNode ? configPorts : [];
+  const bottomConfigPorts = isProviderNode ? [] : configPorts;
 
   const nodeClasses = [
     'holonNode',
@@ -346,10 +351,48 @@ function HolonNode(props: NodeProps<UiNodeData>): JSX.Element {
           </div>
         ))}
 
+        {/* Provider Ports (Top) */}
+        {topConfigPorts.length > 0 && (
+          <div
+            className="holonNodeProviderPorts"
+            style={{
+              position: 'absolute',
+              top: '-18px',
+              left: '0',
+              right: '0',
+              zIndex: 10,
+              display: 'flex',
+              gap: '10px',
+              justifyContent: 'center',
+              flexWrap: 'wrap'
+            }}
+          >
+            {topConfigPorts.map((p) => (
+              <div key={p.id} style={{ position: 'relative' }} className="group">
+                <div style={{ display: 'flex', justifyContent: 'center' }}>
+                  <Handle
+                    type={p.direction === 'input' ? "target" : "source"}
+                    position={HandlePosition.Top}
+                    id={p.id}
+                    className={`holonHandle holonHandle-${p.kind ?? "data"} ${p.multi ? 'holonHandle-multi' : ''}`}
+                    style={{ position: 'relative', transform: 'none', left: 0, top: 0 }}
+                  />
+                </div>
+                <div style={{ fontSize: '9px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.55)', marginTop: '2px', textAlign: 'center' }}>
+                  {p.label || p.id}
+                </div>
+                <div style={{ opacity: 0, transition: 'opacity 0.2s', position: 'absolute', pointerEvents: 'none' }} className="group-hover:opacity-100">
+                  <PortTooltip port={p} />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Config Ports (Bottom) */}
-        {configPorts.length > 0 && (
+        {bottomConfigPorts.length > 0 && (
           <div className="holonNodeConfigPorts" style={{ display: 'flex', gap: '8px', marginTop: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
-            {configPorts.map((p) => (
+            {bottomConfigPorts.map((p) => (
               <div key={p.id} style={{ position: 'relative' }} className="group">
                 <div style={{ fontSize: '9px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)', marginBottom: '2px', textAlign: 'center' }}>
                   {p.label || p.id}
@@ -434,7 +477,7 @@ export default function App(): JSX.Element {
 
   const onSaveCredentials = useCallback((provider: string, creds: Record<string, string>) => {
     setCredentials(provider, creds);
-    postToExtension({ type: "ui.credentials.set", provider, credentials: creds });
+    postToHost({ type: "ui.credentials.set", provider, credentials: creds });
   }, [setCredentials]);
 
   const onAi = useCallback((nodeId: string) => {
@@ -457,7 +500,7 @@ export default function App(): JSX.Element {
     if (!instruction) {
       return;
     }
-    postToExtension({ type: "ui.node.aiRequest", nodeId: aiModalNodeId, instruction });
+    postToHost({ type: "ui.node.aiRequest", nodeId: aiModalNodeId, instruction });
     closeAiModalAction();
   }, [aiInstruction, aiModalNodeId, closeAiModalAction]);
 
@@ -472,7 +515,7 @@ export default function App(): JSX.Element {
   }, [aiModalNodeId]);
 
   const onDescribe = useCallback((nodeId: string) => {
-    postToExtension({ type: "ui.node.describeRequest", nodeId });
+    postToHost({ type: "ui.node.describeRequest", nodeId });
   }, []);
 
   const onDeleteNode = useCallback((nodeId: string) => {
@@ -480,22 +523,22 @@ export default function App(): JSX.Element {
     if (!ok) {
       return;
     }
-    postToExtension({ type: "ui.node.deleteRequest", nodeId });
+    postToHost({ type: "ui.node.deleteRequest", nodeId });
   }, []);
 
   const onPatchNode = useCallback((nodeId: string, props: Record<string, any>) => {
-    postToExtension({ type: "ui.node.patchRequest", nodeId, props });
+    postToHost({ type: "ui.node.patchRequest", nodeId, props });
   }, []);
 
   const onRunWorkflow = useCallback(() => {
     // Execute the main workflow (no longer depends on selecting a workflow node)
     console.log("onRunWorkflow: executing workflow 'main'");
-    postToExtension({ type: "ui.workflow.run", workflowName: "main" });
+    postToHost({ type: "ui.workflow.run", workflowName: "main" });
     console.log("posted ui.workflow.run", "main");
   }, [coreNodes]);
 
   useEffect(() => {
-    postToExtension({ type: "ui.ready" });
+    postToHost({ type: "ui.ready" });
   }, []);
 
   useEffect(() => {
@@ -606,7 +649,7 @@ export default function App(): JSX.Element {
     if (entries.length === 0) {
       return;
     }
-    postToExtension({
+    postToHost({
       type: "ui.nodesChanged",
       nodes: entries.map(([id, position]) => ({ id, position })),
     });
@@ -651,7 +694,7 @@ export default function App(): JSX.Element {
   }, [onNodesChange, onDeleteNode, queuePositionUpdate]);
 
   const onNodeDragStop: NodeDragHandler = (_event, node) => {
-    postToExtension({ type: "ui.nodesChanged", nodes: [{ id: node.id, position: node.position }] });
+    postToHost({ type: "ui.nodesChanged", nodes: [{ id: node.id, position: node.position }] });
   };
 
   const onAutoLayout = useCallback(() => {
@@ -660,7 +703,7 @@ export default function App(): JSX.Element {
       return;
     }
     setNodes(next);
-    postToExtension({
+    postToHost({
       type: "ui.nodesChanged",
       nodes: next.map((n) => ({ id: n.id, position: n.position })),
     });
@@ -670,7 +713,7 @@ export default function App(): JSX.Element {
     if (!connection.source || !connection.target) {
       return;
     }
-    postToExtension({
+    postToHost({
       type: "ui.edgeCreated",
       edge: {
         source: connection.source,

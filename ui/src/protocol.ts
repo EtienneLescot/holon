@@ -113,6 +113,7 @@ export const NodeTypesUpdateSchema = z.object({
     category: z.string(),
     description: z.string().optional(),
     defaultProps: z.record(z.unknown()).optional(),
+    connectionRole: z.union([z.literal("flow"), z.literal("provider")]).optional(),
   })),
 });
 

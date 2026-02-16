@@ -1,7 +1,7 @@
 import React from 'react';
 import { BaseEdge, EdgeLabelRenderer, getBezierPath, type EdgeProps } from 'reactflow';
 import { useUIStore } from '../store';
-import { postToExtension } from '../vscodeBridge';
+import { postToHost } from '../vscodeBridge';
 
 export default function EdgeWithDelete({
     id,
@@ -31,7 +31,7 @@ export default function EdgeWithDelete({
 
     const onEdgeDelete = () => {
         // Send delete message directly (no confirmation dialog per user request)
-        postToExtension({
+        postToHost({
             type: "ui.edgeDeleted",
             edge: {
                 source,
