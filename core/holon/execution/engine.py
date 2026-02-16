@@ -60,7 +60,14 @@ class ExecutionEngine:
             sys.stderr.flush()
             for node_id, data in ctx.trigger_data.items():
                 # Set the output port of the trigger node with initial data
-                ctx.port_registry.set_output(node_id, "out", data)
+                injected_value = data
+                if isinstance(data, dict) and "type" in data and "content" in data:
+                    try:
+                        injected_value = DataEnvelope.model_validate(data)
+                    except Exception:
+                        injected_value = data
+
+                ctx.port_registry.set_value(node_id, "out", injected_value)
                 sys.stderr.write(f"[ENGINE] Injected data for trigger {node_id}.out\n")
                 sys.stderr.flush()
         
@@ -82,11 +89,18 @@ class ExecutionEngine:
         if ctx.trigger_data:
             for node_id in ctx.trigger_data.keys():
                 # Check if this trigger has a response port
-                response_value = ctx.port_registry.get_input(node_id, "response")
+                trigger_inputs = ctx.port_registry.get_inputs_for_node(node_id)
+                response_value = trigger_inputs.get("response")
                 if response_value is not None:
                     if ctx.response_data is None:
                         ctx.response_data = {}
-                    ctx.response_data[node_id] = response_value
+
+                    if isinstance(response_value, DataEnvelope):
+                        serialized = response_value.model_dump(mode="json")
+                    else:
+                        serialized = response_value
+
+                    ctx.response_data[node_id] = serialized
                     sys.stderr.write(f"[ENGINE] Captured response data from {node_id}.response\n")
                     sys.stderr.flush()
         
@@ -231,9 +245,17 @@ class ExecutionEngine:
                 
                 # Wrap output in DataEnvelope if not already wrapped
                 if not isinstance(output, DataEnvelope):
+                    if node.node_type == "langchain.agent":
+                        envelope_type = "message"
+                        metadata = {"role": "assistant"}
+                    else:
+                        envelope_type = "data"
+                        metadata = {}
+
                     output_envelope = DataEnvelope(
-                        type="data",
+                        type=envelope_type,
                         content=output,
+                        metadata=metadata,
                         origin={"nodeId": node_id, "port": "output"}
                     )
                 else:
@@ -373,25 +395,33 @@ class ExecutionEngine:
         # Build agent call arguments from port inputs
         # Expected ports: input, llm, tools, memory
         agent_kwargs = {}
+
+        def _unwrap(value: Any) -> Any:
+            if isinstance(value, DataEnvelope):
+                return value.content
+            if isinstance(value, dict) and "content" in value:
+                return value["content"]
+            return value
         
         # Get input text
         if "input" in inputs:
-            agent_kwargs["input"] = inputs["input"]
+            input_value = _unwrap(inputs["input"])
+            agent_kwargs["input"] = "" if input_value is None else str(input_value)
         else:
             # Use user_prompt from props as fallback
             agent_kwargs["input"] = resolved.props.get("user_prompt", "")
         
         # Get LLM from llm port
         if "llm" in inputs:
-            agent_kwargs["llm"] = inputs["llm"]
+            agent_kwargs["llm"] = _unwrap(inputs["llm"])
         
         # Get tools from tools port
         if "tools" in inputs:
-            agent_kwargs["tools"] = inputs["tools"]
+            agent_kwargs["tools"] = _unwrap(inputs["tools"])
         
         # Get memory from memory port
         if "memory" in inputs:
-            agent_kwargs["memory"] = inputs["memory"]
+            agent_kwargs["memory"] = _unwrap(inputs["memory"])
         
         sys.stderr.write(f"[ENGINE] Agent call args: {list(agent_kwargs.keys())}\n")
         sys.stderr.flush()

@@ -11,14 +11,14 @@ declare function acquireVsCodeApi(): unknown;
 let cachedApi: VsCodeApi | undefined;
 let triedAcquire = false;
 
-type BrowserBridge = {
+type UiHostBridge = {
   postMessageFromUi: (message: ToExtensionMessage) => void;
 };
 
-let browserBridge: BrowserBridge | undefined;
+let browserBridge: UiHostBridge | undefined;
 const pendingMessages: ToExtensionMessage[] = [];
 
-export function registerBrowserBridge(bridge: BrowserBridge): void {
+export function registerBrowserBridge(bridge: UiHostBridge): void {
   browserBridge = bridge;
   while (pendingMessages.length > 0) {
     const msg = pendingMessages.shift();
@@ -50,14 +50,14 @@ export function getVsCodeApi(): VsCodeApi | undefined {
   }
 }
 
-export function postToExtension(message: ToExtensionMessage): void {
+export function postToHost(message: ToExtensionMessage): void {
   const api = getVsCodeApi();
   if (!api) {
     // Browser mode: forward to the dev bridge if present.
     if (browserBridge) {
       // Log outgoing message from UI to extension/bridge
       // eslint-disable-next-line no-console
-      console.log("postToExtension -> bridge:", message);
+      console.log("postToHost -> bridge:", message);
       browserBridge.postMessageFromUi(message);
     } else {
       pendingMessages.push(message);
@@ -65,8 +65,13 @@ export function postToExtension(message: ToExtensionMessage): void {
     return;
   }
   // eslint-disable-next-line no-console
-  console.log("postToExtension -> vscodeApi:", message);
+  console.log("postToHost -> vscodeApi:", message);
   api.postMessage(message);
+}
+
+// Backward-compatible alias (legacy name used in several UI modules).
+export function postToExtension(message: ToExtensionMessage): void {
+  postToHost(message);
 }
 
 function isVsCodeApi(value: unknown): value is VsCodeApi {

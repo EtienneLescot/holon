@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { DataEnvelope } from '../protocol';
+import { postToHost } from '../vscodeBridge';
 
 export interface Message {
   id: string;
@@ -93,15 +94,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
       timestamp: new Date().toISOString(),
     };
     
-    // Use the bridge to send message with conversation history
-    if (window.bridge) {
-      window.bridge.sendMessage({
-        type: 'ui.chat.sendMessage',
-        nodeId,
-        envelope,
-        conversationHistory,  // Include full conversation history
-      });
-    }
+    postToHost({
+      type: 'ui.chat.sendMessage',
+      nodeId,
+      envelope,
+      conversationHistory,
+    });
   },
   
   receiveEnvelope: (nodeId, envelope) => {
@@ -142,12 +140,3 @@ export const useChatStore = create<ChatState>((set, get) => ({
     return get().waitingResponse.get(nodeId) || false;
   },
 }));
-
-// Extend window bridge interface
-declare global {
-  interface Window {
-    bridge?: {
-      sendMessage: (message: any) => void;
-    };
-  }
-}

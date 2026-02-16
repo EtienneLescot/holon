@@ -281,6 +281,15 @@ export const UiChatSendMessageSchema = z.object({
   type: z.literal("ui.chat.sendMessage"),
   nodeId: z.string(),
   envelope: DataEnvelopeSchema,
+  conversationHistory: z
+    .array(
+      z.object({
+        role: z.string(),
+        content: z.string(),
+        timestamp: z.string(),
+      })
+    )
+    .optional(),
 });
 
 export const UiChatControlSchema = z.object({

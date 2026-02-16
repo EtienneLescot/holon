@@ -425,6 +425,65 @@ class BrowserDevBridge {
       return;
     }
 
+    if (msg.type === "ui.chat.sendMessage") {
+      try {
+        const r = await fetchJson<{
+          success: boolean;
+          response?: unknown;
+          error?: string;
+        }>("/api/trigger", {
+          method: "POST",
+          body: JSON.stringify({
+            nodeId: msg.nodeId,
+            envelope: msg.envelope,
+            conversationHistory: msg.conversationHistory ?? [],
+          }),
+        });
+
+        if (r.success && r.response) {
+          postToUi({
+            type: "chat.messageReceived",
+            nodeId: msg.nodeId,
+            envelope: r.response,
+          });
+        } else if (!r.success) {
+          postToUi({
+            type: "chat.event",
+            nodeId: msg.nodeId,
+            event: { action: "error", details: r.error ?? "Workflow execution failed" },
+          });
+        }
+
+        postToUi({
+          type: "chat.event",
+          nodeId: msg.nodeId,
+          event: {
+            action: "message_sent",
+            details: { messageId: msg.envelope.metadata?.messageId },
+          },
+        });
+      } catch (err: unknown) {
+        const details = err instanceof Error ? err.message : String(err);
+        postToUi({
+          type: "chat.event",
+          nodeId: msg.nodeId,
+          event: { action: "error", details },
+        });
+      }
+      return;
+    }
+
+    if (msg.type === "ui.chat.control") {
+      if (msg.action === "clear_history") {
+        postToUi({
+          type: "chat.event",
+          nodeId: msg.nodeId,
+          event: { action: "clear_history" },
+        });
+      }
+      return;
+    }
+
     if (msg.type === "ui.node.aiRequest") {
       // Browser mode: generate a copyable prompt for the user to run in their own agent.
       const node = this.lastGraph?.nodes.find((n) => n.id === msg.nodeId);
