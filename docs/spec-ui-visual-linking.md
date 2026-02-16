@@ -180,7 +180,7 @@ L’utilisateur voit immédiatement :
 
 - Pas de stockage local des liens côté UI.
 - Pas d’édition directe des liens sans passer par le code.
-- Pas de re-design complet du système de mapping (déjà couvert dans SPEC_DATA_TRANSPORT.md).
+- Pas de re-design complet du système de mapping (déjà couvert dans [spec-data-transport.md](spec-data-transport.md)).
 
 ---
 

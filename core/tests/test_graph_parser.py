@@ -44,7 +44,7 @@ def test_parse_graph_extracts_nodes_and_edges() -> None:
     assert [(n.kind, n.name) for n in graph.nodes] == [
         ("node", "analyze"),
         ("node", "summarize"),
-        ("node", "Trigger"),
+        ("spec", "Trigger"),  # Has type= so kind should be "spec"
     ]
 
     assert [(e.source, e.target) for e in graph.edges] == [

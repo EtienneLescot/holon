@@ -9,11 +9,12 @@
 1. [Philosophie & Principes Fondamentaux](#philosophie--principes-fondamentaux)
 2. [Architecture du Projet](#architecture-du-projet)
 3. [Règles de Gestion de Code](#règles-de-gestion-de-code)
-4. [DSL & Décorateurs](#dsl--décorateurs)
-5. [Structure UI (React + Zustand)](#structure-ui-react--zustand)
-6. [Patching Chirurgical (LibCST)](#patching-chirurgical-libcst)
-7. [Workflow de Développement](#workflow-de-développement)
-8. [Checklist avant Commit](#checklist-avant-commit)
+4. [Résilience & Tests de Régression](#résilience--tests-de-régression)
+5. [DSL & Décorateurs](#dsl--décorateurs)
+6. [Structure UI (React + Zustand)](#structure-ui-react--zustand)
+7. [Patching Chirurgical (LibCST)](#patching-chirurgical-libcst)
+8. [Workflow de Développement](#workflow-de-développement)
+9. [Checklist avant Commit](#checklist-avant-commit)
 
 ---
 
@@ -174,13 +175,127 @@ extension/
 cat holon_blueprint.md
 
 # 2. Lire la spec pertinente (si existe)
-cat SPEC_DATA_TRANSPORT.md  # Exemple
+cat docs/spec-data-transport.md  # Exemple
 
 # 3. Coder
 # 4. Mettre à jour blueprint si nécessaire
 ```
 
-### 3. Poetry pour Python
+---
+
+## Résilience & Tests de Régression
+
+### Principe: Tests Exhaustifs pour Éviter les Régressions
+
+Holon est un système complexe avec de nombreuses couches (parsing, validation, exécution, UI). **Chaque feature critique doit avoir des tests de régression.**
+
+### Exemple de Régression Réelle (2026-02-16)
+
+**Problème**: Les nœuds `@node(type="langchain.agent", id=...)` affichaient uniquement 2 ports (input/output) au lieu de 5 ports (input, llm, memory, tools, output).
+
+**Cause**: Le parser `_NodeClassCollector` créait des nœuds avec `kind="node"` au lieu de `kind="spec"`. L'UI utilisait alors `inferPorts()` avec `kind="node"` qui retournait les ports par défaut.
+
+**Solution**: 
+1. Corriger le parser ([graph_parser.py](core/holon/services/graph_parser.py#L251))
+2. **Ajouter des tests de régression** ([test_node_kind_spec.py](core/tests/test_node_kind_spec.py))
+
+**Tests créés**:
+```python
+def test_node_decorator_with_type_creates_spec_kind():
+    """@node(type=..., id=...) should create kind="spec" not kind="node"."""
+    source = '''
+    @node(type="langchain.agent", id="spec:agent:1")
+    class MyAgent:
+        system_prompt = "You are helpful."
+    '''
+    
+    graph = parse_graph(source)
+    node = graph.nodes[0]
+    
+    # Critical assertions to prevent regression
+    assert node.kind == "spec", f"Expected kind='spec', got '{node.kind}'"
+    assert node.node_type == "langchain.agent"
+```
+
+### Patterns de Tests Requis
+
+#### 1. Tests de Parsing (LibCST)
+
+Chaque syntaxe DSL doit avoir un test vérifiant:
+- Structure AST correcte
+- Extraction des propriétés
+- IDs stables
+- Kind correct (`node` vs `spec`)
+
+```python
+# core/tests/test_graph_parser.py
+def test_parse_node_with_type():
+    """Test que @node(type=...) génère un nœud spec."""
+    # ...
+
+def test_parse_link_class():
+    """Test que @link class génère un edge."""
+    # ...
+```
+
+#### 2. Tests de Validation (Pydantic)
+
+Vérifier que les models rejettent les données invalides:
+
+```python
+# core/tests/test_domain_models.py
+def test_node_requires_valid_kind():
+    with pytest.raises(ValidationError):
+        Node(id="test", name="test", kind="invalid")
+```
+
+#### 3. Tests de Patching (LibCST)
+
+Vérifier que les modifications de code sont lossless:
+
+```python
+# core/tests/test_patcher.py
+def test_patch_preserves_comments():
+    source = '''
+    @node
+    def analyze(x):  # Important function
+        return x
+    '''
+    # Patch devrait préserver le commentaire
+```
+
+#### 4. Tests d'Intégration UI ↔ Backend
+
+Vérifier que l'UI interprète correctement les données du backend:
+
+```typescript
+// ui/src/__tests__/ports.test.ts
+test('inferPorts with spec kind uses SPEC_TYPE_REGISTRY', () => {
+  const ports = inferPorts({ kind: 'spec', nodeType: 'langchain.agent' });
+  expect(ports).toHaveLength(5); // input, llm, memory, tools, output
+});
+```
+
+### Checklist Tests de Régression
+
+Avant de considérer un fix comme "terminé":
+
+- [ ] **Test écrit** reproduisant la régression
+- [ ] **Test échoue** avant le fix
+- [ ] **Test passe** après le fix
+- [ ] **Test documenté** avec explication du bug
+- [ ] **Test ajouté** dans la suite appropriée (parser, patcher, UI, etc.)
+
+### Coverage Targets
+
+- **Parser**: 100% des syntaxes DSL couvertes
+- **Patcher**: 100% des transformations couvertes
+- **Domain Models**: 100% des validations couvertes
+- **UI Components**: Tests critiques pour port inference, node rendering
+
+---
+
+## DSL & Décorateurs
 
 **Installation des dépendances** :
 ```bash
@@ -220,9 +335,11 @@ Toutes les modifications de code Python utilisent **LibCST** pour :
 
 ---
 
+---
+
 ## DSL & Décorateurs
 
-### Décorateurs Principaux
+### 3. Poetry pour Python
 
 #### `@node` — Décorateur Universel
 
@@ -602,10 +719,14 @@ cd core && poetry run ruff check holon/
 
 ### Documents à Lire (par ordre de priorité)
 
-1. **`AGENT.md`** (ce fichier) — Vue d'ensemble
-2. **`holon_blueprint.md`** — Architecture et décisions
-3. **`SPEC_DATA_TRANSPORT.md`** — Port mappings (Phase 6.1)
-4. **`ui/src/store/README.md`** — Pattern des stores
+1. **`AGENT.md`** (ce fichier) — Vue d'ensemble et guide pratique
+2. **`holon_blueprint.md`** — Architecture et décisions stratégiques
+3. **Documentation Technique** (`docs/`):
+   - [`docs/spec-data-transport.md`](docs/spec-data-transport.md) — Port mappings & DataEnvelope (Phase 6.1)
+   - [`docs/spec-chat-node.md`](docs/spec-chat-node.md) — Node de chat interactif
+   - [`docs/data-references.md`](docs/data-references.md) — Data browser & template references
+   - [`docs/spec-ui-visual-linking.md`](docs/spec-ui-visual-linking.md) — UI visual linking & ports
+4. **`ui/src/store/README.md`** — Pattern des stores Zustand
 5. **`ui/src/store/template.ts`** — Template pour nouveaux stores
 
 ### Fichiers Clés du Codebase

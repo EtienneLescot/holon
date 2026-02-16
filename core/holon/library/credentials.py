@@ -68,5 +68,20 @@ class CredentialsManager:
         """Convenience method for API key."""
         creds = self.get_credentials(provider)
         return creds.get("api_key")
+    
+    def get_all_credentials(self) -> Dict[str, Dict[str, str]]:
+        """Retrieve all stored credentials."""
+        result = {}
+        try:
+            with sqlite3.connect(self._db_path) as conn:
+                cursor = conn.execute("SELECT provider, data FROM credentials")
+                for provider, data in cursor.fetchall():
+                    try:
+                        result[provider] = json.loads(data)
+                    except json.JSONDecodeError as e:
+                        print(f"[CREDENTIALS] Error decoding credentials for {provider}: {e}", file=sys.stderr)
+        except sqlite3.Error as e:
+            print(f"[CREDENTIALS] Error retrieving all credentials: {e}", file=sys.stderr)
+        return result
 
 credentials_manager = CredentialsManager()

@@ -62,7 +62,7 @@ export class ChatHandler {
         throw new Error(`Trigger failed: ${response.statusText}`);
       }
 
-      const result = await response.json();
+      const result = await response.json() as { success: boolean; response?: any; error?: string };
 
       if (result.success && result.response) {
         // Forward the workflow response to the chat UI

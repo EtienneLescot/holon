@@ -203,8 +203,8 @@ def _make_handler(state: _State) -> type[BaseHTTPRequestHandler]:
                 if provider:
                     self._send_json(200, credentials_manager.get_credentials(provider))
                 else:
-                    # In a real app we might not want to send everything back
-                    self._send_json(200, credentials_manager._store)
+                    # Return all credentials
+                    self._send_json(200, credentials_manager.get_all_credentials())
                 return
             if self.path == "/api/node_types":
                 try:

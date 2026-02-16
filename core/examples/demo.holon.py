@@ -2,12 +2,6 @@ from __future__ import annotations
 
 from holon import node, workflow, link, spec
 
-@node(type = "langchain.agent", id = "node:langchain_agent:e054688c-a21a-4a70-8946-9e67354e56bb")
-class LangchainAgent:
-    "LangChain Agent"
-    system_prompt = "You are a helpful assistant."
-    user_prompt = "Tell me a story."
-
 @node(type = "langchain.agent", id = "node:langchain_agent:076bd2ef-e4c7-44ac-8ff5-c623e795f6cd")
 class LangchainAgent:
     "LangChain Agent"

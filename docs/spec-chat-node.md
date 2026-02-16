@@ -3,7 +3,7 @@
 **Date**: 2026-02-03  
 **Status**: Draft — pour validation  
 **Phase**: 6.2 (interactive nodes)  
-**Dépendances**: `SPEC_DATA_TRANSPORT.md` (DataEnvelope, @port_map)
+**Dépendances**: [`spec-data-transport.md`](spec-data-transport.md) (DataEnvelope, @port_map)
 
 ---
 
@@ -789,7 +789,7 @@ User input → ChatNode.out.message
 4. **Connections viewer** :
    - Affiche les edges connectés au node.
    - Montre les mappings appliqués.
-   - Bouton "Edit mappings" → ouvre Mapping Editor (voir SPEC_DATA_TRANSPORT).
+   - Bouton "Edit mappings" → ouvre Mapping Editor (voir [spec-data-transport.md](spec-data-transport.md)).
 
 ---
 
@@ -840,7 +840,7 @@ User input → ChatNode.out.message
    - Patch appliqué au code, UI refresh.
 
 2. **Customize** :
-   - Ouvre Mapping Editor (voir SPEC_DATA_TRANSPORT.md section 5.3).
+   - Ouvre Mapping Editor (voir [spec-data-transport.md](spec-data-transport.md) section 5.3).
    - Utilisateur configure manuellement.
 
 3. **Bidirectional option** :
@@ -1155,7 +1155,7 @@ async def test_chat_agent_loop():
 
 **Prochaines étapes** :
 1. Valider cette spec avec l'équipe.
-2. Implémenter `SPEC_DATA_TRANSPORT.md` (prérequis).
+2. Implémenter [`spec-data-transport.md`](spec-data-transport.md) (prérequis).
 3. Implémenter le chat node (backend + UI core).
 4. Implémenter UI avancée (Inspector, Connection Assistant).
 5. Tests E2E avec exemple `chat_agent.holon.py`.
@@ -1163,7 +1163,7 @@ async def test_chat_agent_loop():
 ---
 
 **Dépendances** :
-- `SPEC_DATA_TRANSPORT.md` (DataEnvelope, @port_map)
+- [`spec-data-transport.md`](spec-data-transport.md) (DataEnvelope, @port_map)
 - Phase 6.1 (ExecutionEngine opérationnel)
 - React Flow custom nodes (déjà en place)
 - UI components library (Inspector Panel, Mapping Editor)

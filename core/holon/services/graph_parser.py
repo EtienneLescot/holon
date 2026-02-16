@@ -249,7 +249,7 @@ class _NodeClassCollector(cst.CSTVisitor):
             Node(
                 id=node_id,
                 name=node.name.value,
-                kind="node",
+                kind="spec",
                 node_type=node_type,
                 label=label,
                 props=props or None,
