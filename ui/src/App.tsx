@@ -14,6 +14,7 @@ import ReactFlow, {
   type OnNodesChange,
   type Connection,
   type OnSelectionChangeParams,
+  useReactFlow,
 } from "reactflow";
 import "reactflow/dist/style.css";
 
@@ -428,6 +429,9 @@ export default function App(): JSX.Element {
   const nodeTypes = useMemo(() => ({ holon: HolonNode }), []);
   const edgeTypes = useMemo(() => ({ holonEdge: EdgeWithDelete }), []);
 
+  // ReactFlow instance for viewport control
+  const reactFlowInstance = useReactFlow();
+
   // Zustand stores
   const coreNodes = useGraphStore(s => s.nodes);
   const aiByNodeId = useGraphStore(s => s.aiStatusByNodeId);
@@ -473,6 +477,7 @@ export default function App(): JSX.Element {
 
   const aiTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const executionOutputRef = useRef<Record<string, any> | null>(null);
+  const lastAdjustedNodeIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     executionOutputRef.current = executionOutput;
@@ -642,10 +647,15 @@ export default function App(): JSX.Element {
   }, [executionOutput, coreNodes, onAi, onDescribe, aiByNodeId, selectedNodeId, setNodes]);
 
   const onSelectionChange = useCallback((params: OnSelectionChangeParams) => {
-    const first = params.nodes && params.nodes.length > 0 ? params.nodes[0] : undefined;
-    if (first) {
-      selectNode(first.id);
-    }
+    // Don't handle selection here anymore - we handle it in onNodeClick
+  }, []);
+
+  const onNodeClick = useCallback((_event: React.MouseEvent, node: Node) => {
+    // Use setTimeout to delay selection until after mouseup
+    // This makes it feel like selection happens on mouseup instead of mousedown
+    setTimeout(() => {
+      selectNode(node.id);
+    }, 0);
   }, [selectNode]);
 
   const pendingPositionUpdatesRef = useRef<Map<string, { x: number; y: number }>>(new Map());
@@ -756,6 +766,84 @@ export default function App(): JSX.Element {
     };
   }, [nodes, selectedNodeId]);
 
+  // Auto-adjust viewport when a node is selected to prevent it from being hidden by the ConfigPanel
+  // This runs ONLY when selectedNodeId changes (opening the panel), not when nodes are moved
+  useEffect(() => {
+    if (!selectedNodeId || !reactFlowInstance) {
+      // Reset the tracking when no node is selected
+      lastAdjustedNodeIdRef.current = null;
+      return;
+    }
+    
+    // Don't re-adjust if we just adjusted this same node
+    if (lastAdjustedNodeIdRef.current === selectedNodeId) {
+      return;
+    }
+    
+    // Small delay to ensure the panel opening animation doesn't interfere with calculations
+    const timeoutId = setTimeout(() => {
+      const CONFIG_PANEL_WIDTH = 500; // Width of the ConfigPanel in pixels
+      const DESIRED_MARGIN = 20; // Margin we want between node and panel
+      
+      // Get the container
+      const container = document.querySelector('.react-flow__viewport') as HTMLElement;
+      const wrapper = document.querySelector('.react-flow') as HTMLElement;
+      if (!container || !wrapper) return;
+      
+      // Get the actual node element from the DOM
+      const nodeElement = document.querySelector(`[data-id="${selectedNodeId}"]`) as HTMLElement;
+      if (!nodeElement) return;
+      
+      const wrapperRect = wrapper.getBoundingClientRect();
+      const nodeRect = nodeElement.getBoundingClientRect();
+      
+      // Calculate node's right edge position relative to the wrapper
+      const nodeRightInWrapper = nodeRect.right - wrapperRect.left;
+      
+      // Where the visible area ends (accounting for the panel)
+      const visibleRight = wrapperRect.width - CONFIG_PANEL_WIDTH - DESIRED_MARGIN;
+      
+      // How much the node overflows
+      const overflow = nodeRightInWrapper - visibleRight;
+      
+      // Get current viewport
+      const { x: viewportX, y: viewportY, zoom } = reactFlowInstance.getViewport();
+      
+      // Debug logging
+      console.log('[Viewport Adjustment]', {
+        nodeRightInWrapper,
+        visibleRight,
+        overflow,
+        wrapperWidth: wrapperRect.width,
+        nodeRectRight: nodeRect.right,
+        wrapperRectLeft: wrapperRect.left,
+        zoom,
+        viewportX
+      });
+      
+      // Only shift if there's overflow
+      if (overflow > 0) {
+        // Shift viewport by the overflow amount
+        reactFlowInstance.setViewport(
+          {
+            x: viewportX - overflow,
+            y: viewportY,
+            zoom: zoom,
+          },
+          { duration: 300 }
+        );
+        
+        // Remember that we adjusted this node
+        lastAdjustedNodeIdRef.current = selectedNodeId;
+      } else {
+        // Node doesn't need adjustment, but track it
+        lastAdjustedNodeIdRef.current = selectedNodeId;
+      }
+    }, 100); // Slightly longer delay to ensure DOM is settled
+    
+    return () => clearTimeout(timeoutId);
+  }, [selectedNodeId, reactFlowInstance]); // Only react to selectedNodeId changes, not nodes
+
   return (
     <div className="holonRoot">
       <div className="header">
@@ -804,7 +892,7 @@ export default function App(): JSX.Element {
             onNodeDragStop={onNodeDragStop}
             onConnect={onConnect}
             onSelectionChange={onSelectionChange}
-            onNodeClick={(_e, n) => selectNode(n.id)}
+            onNodeClick={onNodeClick}
             onPaneClick={() => {
               selectNode(null);
               setEdgeInspector(null);

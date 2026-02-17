@@ -2,13 +2,6 @@ from __future__ import annotations
 
 from holon import node, links
 
-@node(type = "llm.model", id = "node:llm_model:eacf77e7-8b8a-469e-966c-7ea808367f17")
-class LlmModel:
-    "LLM Model"
-    provider = "openai"
-    model_name = "gpt-4o"
-    temperature = 0.7
-
 @node(type="trigger.chat", id="node:trigger:chat:main")
 class TriggerChat:
     "Chat Trigger"

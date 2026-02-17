@@ -1,5 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
+import { ReactFlowProvider } from "reactflow";
 
 // BrowserBridge is only needed for standalone dev mode, not for VS Code extension
 if (import.meta.env?.DEV && !(window as any).acquireVsCodeApi) {
@@ -11,6 +12,8 @@ import "./styles.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <App />
+    <ReactFlowProvider>
+      <App />
+    </ReactFlowProvider>
   </React.StrictMode>
 );
