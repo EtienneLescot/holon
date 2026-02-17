@@ -114,14 +114,24 @@ class ExecutionEngine:
         sys.stderr.write("[ENGINE] Registering port connections\n")
         sys.stderr.flush()
         
+        # Build mapping from class name to node ID
+        # (Parser returns class names in edges, but runtime uses node IDs)
+        name_to_id = {node.name: node.id for node in ctx.graph.nodes}
+        
         for edge in ctx.graph.edges:
             if edge.source_port and edge.target_port:
+                # Map class names to node IDs
+                source_id = name_to_id.get(edge.source, edge.source)
+                target_id = name_to_id.get(edge.target, edge.target)
+                
                 ctx.port_registry.add_connection(
-                    source_node=edge.source,
+                    source_node=source_id,
                     source_port=edge.source_port,
-                    target_node=edge.target,
+                    target_node=target_id,
                     target_port=edge.target_port,
                 )
+                sys.stderr.write(f"[ENGINE] Registered: {source_id}.{edge.source_port} -> {target_id}.{edge.target_port}\n")
+                sys.stderr.flush()
     
     def _resolve_spec_nodes(self, ctx: ExecutionContext) -> None:
         """Resolve all spec nodes in the graph."""

@@ -33,6 +33,7 @@ def __getattr__(name: str) -> Any:
         return {
             "Context": Context,
             "link": link,
+            "links": links,
             "node": node,
             "port_map": port_map,
             "spec": spec,
