@@ -17,18 +17,18 @@ export const MessageList = memo(({
   allowMarkdown = true,
   autoScroll = true 
 }: MessageListProps) => {
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (autoScroll) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (autoScroll && containerRef.current) {
+      containerRef.current.scrollTop = containerRef.current.scrollHeight;
     }
   }, [messages, autoScroll]);
 
   const displayedMessages = messages.slice(-maxHistory);
 
   return (
-    <div className="message-list">
+    <div className="message-list" ref={containerRef}>
       {displayedMessages.length === 0 ? (
         <div className="message-list-empty">
           <p>No messages yet. Start a conversation!</p>
@@ -43,7 +43,6 @@ export const MessageList = memo(({
           />
         ))
       )}
-      <div ref={messagesEndRef} />
     </div>
   );
 });
