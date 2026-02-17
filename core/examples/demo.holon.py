@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from holon import node, workflow, link
+from holon import node, links
 
 @node(type="trigger.chat", id="node:trigger:chat:main")
 class TriggerChat:
@@ -27,26 +27,17 @@ class LlmModel:
     temperature = 0.7
 
 
-@workflow
-async def main() -> str:
-    """Simple chat workflow: user → agent → user (conversation loop)."""
-
-    # Chat user message → Agent input
-    @link
-    class _:
-        source = ("node:trigger:chat:main", "out")
-        target = ("node:langchain:agent:assistant", "input")
-
-    # LLM → Agent (required connection)
-    @link
-    class _:
-        source = ("node:llm:model:gpt4o", "output")
-        target = ("node:langchain:agent:assistant", "llm")
-
-    # Agent response → Chat (loop back)
-    @link
-    class _:
-        source = ("node:langchain:agent:assistant", "output")
-        target = ("node:trigger:chat:main", "response")
-
-    return "Chat demo active - send a message in the trigger chat node"
+@links
+def define_routing():
+    """Definition des connexions : Control Flow et Data Flow."""
+    
+    # 1. DEPENDENCY BINDING (Resource Injection)
+    # The agent needs an LLM to process requests
+    LangchainAgent.uses(llm=LlmModel.output)
+    
+    # 2. PIPELINE FLOW (Execution & Data Transport)
+    # User message flows from chat to agent
+    TriggerChat.out >> LangchainAgent.input
+    
+    # Agent response loops back to chat display
+    LangchainAgent.output >> TriggerChat.response

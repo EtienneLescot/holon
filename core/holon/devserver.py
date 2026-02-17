@@ -288,18 +288,19 @@ def _make_handler(state: _State) -> type[BaseHTTPRequestHandler]:
                     return
 
                 if self.path == "/api/add_link":
-                    workflow_name = body.get("workflow_name")
+                    # Accept both old (workflow_name) and new (links_function_name) parameter names
+                    links_function_name = body.get("links_function_name") or body.get("workflow_name")
                     source_node_id = body.get("source_node_id")
                     source_port = body.get("source_port")
                     target_node_id = body.get("target_node_id")
                     target_port = body.get("target_port")
 
-                    if not all(isinstance(x, str) for x in [workflow_name, source_node_id, source_port, target_node_id, target_port]):
-                        raise ValueError("workflow_name/source_node_id/source_port/target_node_id/target_port must be strings")
+                    if not all(isinstance(x, str) for x in [links_function_name, source_node_id, source_port, target_node_id, target_port]):
+                        raise ValueError("links_function_name/source_node_id/source_port/target_node_id/target_port must be strings")
 
                     state.source = add_link(
                         state.source,
-                        workflow_name=workflow_name,
+                        links_function_name=links_function_name,
                         source_node_id=source_node_id,
                         source_port=source_port,
                         target_node_id=target_node_id,

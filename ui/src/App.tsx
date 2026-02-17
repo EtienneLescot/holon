@@ -43,7 +43,7 @@ type UiNodeData = {
   label: string;
   nodeId: string;
   name: string;
-  kind: "node" | "workflow" | "spec";
+  kind: "node" | "workflow" | "spec" | "links";
   nodeType?: string;
   connectionRole: NodeConnectionRole;
   props?: Record<string, unknown>;
@@ -70,7 +70,10 @@ function toReactFlowNodes(
   }
 ):
   Array<Node<UiNodeData>> {
-  return input.map((n, idx) => {
+  // Filter out metadata nodes (links functions) - they don't appear in the canvas
+  const visibleNodes = input.filter((n) => n.kind !== "links");
+  
+  return visibleNodes.map((n, idx) => {
     const position = n.position ?? { x: 40 + idx * 220, y: n.kind === "workflow" ? 60 : 180 };
     const aiStatus = opts.aiByNodeId[n.id];
     const hasError = opts.executionOutput?.[n.id]?.status === "error";
@@ -122,23 +125,29 @@ function toReactFlowNodes(
   });
 }
 
-function toReactFlowEdges(input: CoreEdge[]): Edge[] {
-  return input.map((e) => ({
-    id: `${e.kind ?? "code"}:${e.source}:${e.sourcePort ?? ""}->${e.target}:${e.targetPort ?? ""}`,
-    source: e.source,
-    target: e.target,
-    sourceHandle: e.sourcePort ?? null,
-    targetHandle: e.targetPort ?? null,
-    animated: false,
-    ...(e.kind === "link" ? { style: { stroke: "rgba(110,168,255,0.4)" } } : {}),
-    type: "holonEdge",
-    data: {
-      source: e.source,
-      target: e.target,
-      sourcePort: e.sourcePort,
-      targetPort: e.targetPort,
-    }
-  }));
+function toReactFlowEdges(input: CoreEdge[], nodeNameToId: Map<string, string>): Edge[] {
+  return input.map((e) => {
+    // Map class names to node IDs for React Flow
+    const sourceId = nodeNameToId.get(e.source) ?? e.source;
+    const targetId = nodeNameToId.get(e.target) ?? e.target;
+    
+    return {
+      id: `${e.kind ?? "code"}:${sourceId}:${e.sourcePort ?? ""}->${targetId}:${e.targetPort ?? ""}`,
+      source: sourceId,
+      target: targetId,
+      sourceHandle: e.sourcePort ?? null,
+      targetHandle: e.targetPort ?? null,
+      animated: false,
+      ...(e.kind === "link" ? { style: { stroke: "rgba(110,168,255,0.4)" } } : {}),
+      type: "holonEdge",
+      data: {
+        source: e.source,  // Keep original class names in data
+        target: e.target,
+        sourcePort: e.sourcePort,
+        targetPort: e.targetPort,
+      }
+    };
+  });
 }
 
 function PortTooltip({ port }: { port: PortSpec }) {
@@ -557,8 +566,15 @@ export default function App(): JSX.Element {
       const msg = parsed.data;
       if (msg.type === "graph.init" || msg.type === "graph.update") {
         setGraph(msg.nodes, msg.edges);
+        
+        // Create mapping from class name to node ID for edge resolution
+        const nodeNameToId = new Map<string, string>();
+        msg.nodes.forEach((n) => {
+          nodeNameToId.set(n.name, n.id);
+        });
+        
         setNodes(toReactFlowNodes(msg.nodes, { onAi, onDescribe, aiByNodeId, selectedNodeId, executionOutput: executionOutputRef.current }));
-        setEdges(toReactFlowEdges(msg.edges));
+        setEdges(toReactFlowEdges(msg.edges, nodeNameToId));
       }
 
       if (msg.type === "graph.error") {

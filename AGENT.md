@@ -64,7 +64,7 @@ holon/
 │   │   ├── execution/      # Engine, PortRegistry, PortMapper, Resolver
 │   │   ├── services/       # GraphParser, Patcher
 │   │   ├── library/        # Nodes préfabriquées (LangChain, LLM)
-│   │   ├── dsl.py          # Décorateurs (@node, @workflow, @link, @port_map)
+│   │   ├── dsl.py          # Décorateurs (@node, @links, @workflow, @port_map)
 │   │   └── api.py          # Server RPC JSONL
 │   ├── examples/           # Workflows de démonstration
 │   ├── tests/              # Tests unitaires (pytest)
@@ -201,20 +201,32 @@ Holon est un système complexe avec de nombreuses couches (parsing, validation, 
 
 **Tests créés**:
 ```python
-def test_node_decorator_with_type_creates_spec_kind():
-    """@node(type=..., id=...) should create kind="spec" not kind="node"."""
+def test_parse_graph_rshift_operator_syntax():
+    """Test de la syntaxe >> pour définir des liens (pipeline flow)."""
     source = '''
-    @node(type="langchain.agent", id="spec:agent:1")
-    class MyAgent:
-        system_prompt = "You are helpful."
+    from holon import node, links
+    
+    @node(type="trigger.chat", id="node:trigger:chat:main")
+    class TriggerChat:
+        pass
+    
+    @node(type="langchain.agent", id="node:agent:assistant")
+    class LangchainAgent:
+        pass
+    
+    @links
+    def define_routing():
+        # Pipeline flow
+        TriggerChat.out >> LangchainAgent.input
     '''
     
     graph = parse_graph(source)
-    node = graph.nodes[0]
     
-    # Critical assertions to prevent regression
-    assert node.kind == "spec", f"Expected kind='spec', got '{node.kind}'"
-    assert node.node_type == "langchain.agent"
+    # Vérifier extraction des edges via >>
+    assert len(graph.edges) == 1
+    edge = graph.edges[0]
+    assert edge.source == "TriggerChat"
+    assert edge.target == "LangchainAgent"
 ```
 
 ### Patterns de Tests Requis
@@ -233,8 +245,12 @@ def test_parse_node_with_type():
     """Test que @node(type=...) génère un nœud spec."""
     # ...
 
-def test_parse_link_class():
-    """Test que @link class génère un edge."""
+def test_parse_rshift_operator():
+    """Test que l'opérateur >> génère un edge (pipeline flow)."""
+    # ...
+
+def test_parse_uses_method():
+    """Test que .uses() génère un edge (dependency binding)."""
     # ...
 ```
 
@@ -379,23 +395,45 @@ async def main() -> str:
 - Les appels de fonctions dans le corps créent des edges implicites
 - ID : `workflow:<function_name>`
 
-#### `@link` — Liens Explicites
+#### `@links` — Définition des Connexions
 
-**Syntaxe recommandée** (code-first) :
+**Syntaxe moderne** (idiomatique Python) :
 ```python
-@workflow
-async def main() -> str:
-    @link
-    class _:  # Classe anonyme
-        source = (NodeA, "output")
-        target = (NodeB, "input")
+from holon import node, links
+
+@node(type="trigger.chat", id="node:trigger:chat:main")
+class TriggerChat:
+    pass
+
+@node(type="langchain.agent", id="node:agent:assistant")
+class LangchainAgent:
+    pass
+
+@node(type="llm.model", id="node:llm:gpt4o")
+class LlmModel:
+    pass
+
+@links
+def define_routing():
+    """Définition des connexions : Pipeline Flow et Dependency Binding"""
+    
+    # 1. DEPENDENCY BINDING (Resource Injection)
+    LangchainAgent.uses(llm=LlmModel.output)
+    
+    # 2. PIPELINE FLOW (Execution & Data Transport)
+    TriggerChat.out >> LangchainAgent.input
+    LangchainAgent.output >> TriggerChat.response
 ```
 
+**Deux types de connexions** :
+1. **Pipeline Flow (`>>`)** : Flux chronologique de données (exécution séquentielle)
+2. **Dependency Binding (`.uses()`)** : Injection de ressources (équipement du node)
+
 **Pourquoi** :
-- Références directes (pas de strings)
-- Refactoring-safe
-- Autocomplete IDE
-- AI-friendly
+- Syntaxe idiomatique Python (comme Airflow, LangChain)
+- Distinction claire entre flux de données et dépendances
+- Pas d'anti-pattern (`class _:` éliminé)
+- Type-safe avec autocomplétion IDE
 
 #### `@port_map` — Mappings de Ports (Phase 6.1)
 
@@ -420,7 +458,7 @@ async def chat_agent() -> str:
 ### Imports Standards
 
 ```python
-from holon import node, workflow, link, port_map
+from holon import node, links, workflow, port_map
 from holon.domain.models import DataEnvelope, PortMapping
 ```
 
@@ -821,5 +859,6 @@ Pour questions ou clarifications :
 
 ---
 
-**Dernière mise à jour** : 2026-02-03  
-**Version Blueprint** : Phase 6.1 (Data Transport & Port Mapping)
+**Dernière mise à jour** : 2026-02-17  
+**Version Blueprint** : Phase 6.2 (Syntaxe idiomatique `>>` et `.uses()`)  
+**Changement majeur** : Suppression de `@link class _:` au profit de `>>` (pipeline flow) et `.uses()` (dependency binding)

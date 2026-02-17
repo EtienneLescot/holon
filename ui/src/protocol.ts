@@ -5,7 +5,7 @@ export const PositionSchema = z.object({
   y: z.number(),
 });
 
-export const HolonKindSchema = z.union([z.literal("node"), z.literal("workflow"), z.literal("spec")]);
+export const HolonKindSchema = z.union([z.literal("node"), z.literal("workflow"), z.literal("spec"), z.literal("links")]);
 
 export const PortDirectionSchema = z.union([z.literal("input"), z.literal("output")]);
 

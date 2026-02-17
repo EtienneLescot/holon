@@ -81,7 +81,7 @@ type ExtensionToWebviewMessage =
     nodes: Array<{
       id: string;
       name: string;
-      kind: "node" | "workflow" | "spec";
+      kind: "node" | "workflow" | "spec" | "links";
       position?: { x: number; y: number } | null;
       label?: string;
       nodeType?: string;
@@ -96,7 +96,7 @@ type ExtensionToWebviewMessage =
     nodes: Array<{
       id: string;
       name: string;
-      kind: "node" | "workflow" | "spec";
+      kind: "node" | "workflow" | "spec" | "links";
       position?: { x: number; y: number } | null;
       label?: string;
       nodeType?: string;
@@ -385,12 +385,22 @@ export class HolonPanel {
 
     const source = doc.getText();
     const rpc = await this.ensureRpc();
-    const workflowName = pickWorkflowName(this.lastGraph);
-    if (!workflowName) {
-      this.output.appendLine("edge add warning: no workflow found");
+    const linksFunctionName = pickLinksFunction(this.lastGraph);
+    if (!linksFunctionName) {
+      this.output.appendLine("edge add warning: no @links function found");
       return;
     }
-    const updated = await rpc.addLink(source, workflowName, edge.source, sourcePort, edge.target, targetPort);
+    
+    // Map node IDs back to class names for the patcher
+    const sourceNode = this.lastGraph?.nodes.find((n) => n.id === edge.source);
+    const targetNode = this.lastGraph?.nodes.find((n) => n.id === edge.target);
+    
+    if (!sourceNode || !targetNode) {
+      this.output.appendLine("edge add error: cannot find source or target node");
+      return;
+    }
+    
+    const updated = await rpc.addLink(source, linksFunctionName, sourceNode.name, sourcePort, targetNode.name, targetPort);
 
     const fullRange = new vscode.Range(doc.positionAt(0), doc.positionAt(source.length));
     const ok = await editor.edit((editBuilder) => {
@@ -1464,7 +1474,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 type NodeInfo = {
   id: string;
   name: string;
-  kind: "node" | "workflow" | "spec";
+  kind: "node" | "workflow" | "spec" | "links";
   label?: string;
   nodeType?: string;
   props?: Record<string, unknown>;
@@ -1474,13 +1484,15 @@ type NodeInfo = {
 type PortDirection = "input" | "output";
 type PortKind = "data" | "llm" | "memory" | "tool" | "parser" | "control";
 
-function pickWorkflowName(graph: CoreGraph | undefined): string | undefined {
+function pickLinksFunction(graph: CoreGraph | undefined): string | undefined {
   if (!graph) {
     return undefined;
   }
-  const workflows = graph.nodes.filter((n) => n.kind === "workflow");
-  const main = workflows.find((w) => w.name === "main");
-  return main?.name ?? workflows[0]?.name;
+  // Find @links functions - they contain the edge definitions
+  const linksFunctions = graph.nodes.filter((n) => n.kind === "links");
+  // Prefer common names, otherwise use the first one
+  const preferred = linksFunctions.find((f) => ["define_routing", "define_wiring", "define_links", "links", "main"].includes(f.name));
+  return preferred?.name ?? linksFunctions[0]?.name;
 }
 
 async function requestCopilotFunctionReplacement(input: {

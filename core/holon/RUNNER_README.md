@@ -133,7 +133,7 @@ Returns: `ExecutionResult`
 
 ❌ **Not yet supported (future):**
 - Spec node resolution (`@node(type="llm.model", ...)`)
-- Port-based data flow (`@link` declarations)
+- Port-based data flow (`>>` operator and `.uses()` declarations)
 - Context passing to nodes
 - Parallel execution
 - Execution tracing/debugging
@@ -259,7 +259,8 @@ Test coverage includes:
    - Integration with langchain, etc.
 
 2. **Port-Based Data Flow**
-   - Respect `@link` declarations
+   - Respect `>>` operator for pipeline flow
+   - Respect `.uses()` for dependency binding
    - Explicit port connections
    - Validation of port compatibility
 

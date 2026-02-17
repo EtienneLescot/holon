@@ -119,7 +119,7 @@ Chaque lien dessiné dans l’UI doit afficher une **poubelle au centre**.
 **Comportement** :
 - Survol du lien → apparition de la poubelle.
 - Clic sur la poubelle → demande de confirmation → suppression du lien.
-- La suppression **génère une modification de code** (`@link` ou `@port_map`).
+- La suppression **génère une modification de code** (instruction `>>` ou `.uses()`, ou `@port_map`).
 
 **Règle** :
 - Un lien UI est **la projection d’un lien “code”**.
@@ -141,13 +141,30 @@ Chaque lien dessiné dans l’UI doit afficher une **poubelle au centre**.
 1. Clic sur un dot “output”.
 2. Clic sur un dot “input”.
 3. L’UI envoie `ui.edgeCreated` à l’extension.
-4. L’extension génère `@link` (ou `@port_map` si mapping).
+4. L'extension génère le code approprié :
+   - Pour pipeline flow : `SourceNode.output >> TargetNode.input`
+   - Pour dependency binding : `TargetNode.uses(dep=SourceNode.output)`
+   - Pour mapping complexe : `@port_map`
 
 ---
 
 ### 3.3) Suppression de lien
 
 **Nouveau message RPC suggéré** :
+```typescript
+interface EdgeDeletedMessage {
+  method: 'ui.edgeDeleted';
+  params: {
+    sourceNodeId: string;
+    sourcePort: string;
+    targetNodeId: string;
+    targetPort: string;
+  };
+}
+```
+
+**Action backend** :
+- Supprimer la déclaration correspondante dans le code (`>>`, `.uses()`, ou `@port_map`).
 
 ```ts
 {
@@ -157,8 +174,8 @@ Chaque lien dessiné dans l’UI doit afficher une **poubelle au centre**.
 ```
 
 **Action côté extension** :
-- Supprimer la déclaration `@link` correspondante.
-- Si le lien est un mapping (`@port_map`), supprimer la classe `@port_map`.
+- Supprimer l'instruction correspondante dans le code (`>>`, `.uses()`, ou `@port_map`).
+- Si le lien est un mapping complexe (`@port_map`), supprimer la classe `@port_map` complète.
 
 ---
 
@@ -188,7 +205,7 @@ L’utilisateur voit immédiatement :
 
 - Un lien existe entre `Chat.out.message` et `Agent.in.prompt`.
 - L’utilisateur clique la poubelle au centre du lien.
-- Le `@link` est supprimé du `*.holon.py`.
+- L'instruction `Chat.out >> Agent.input` (ou le `@port_map`) est supprimée du `*.holon.py`.
 - L’UI refresh et le lien disparaît.
 
 ---
@@ -208,5 +225,5 @@ L’utilisateur voit immédiatement :
 - [ ] Groupement visuel **flow vs config**.
 - [ ] Tooltip port (id + label + kind).
 - [ ] Poubelle au centre de chaque lien.
-- [ ] Nouveau RPC `ui.edgeDeleted` + suppression `@link`/`@port_map`.
+- [ ] Nouveau RPC `ui.edgeDeleted` + suppression des instructions de lien (`>>`, `.uses()`, `@port_map`).
 - [ ] Conformité Code is Truth.

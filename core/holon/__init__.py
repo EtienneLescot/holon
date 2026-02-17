@@ -13,12 +13,13 @@ from typing import TYPE_CHECKING, Any
 
 from holon.__version__ import __version__
 
-__all__ = ["__version__", "Context", "link", "node", "port_map", "spec", "workflow"]
+__all__ = ["__version__", "Context", "link", "links", "node", "port_map", "spec", "workflow"]
 
 
 if TYPE_CHECKING:
     from .dsl import Context as Context
     from .dsl import link as link
+    from .dsl import links as links
     from .dsl import node as node
     from .dsl import port_map as port_map
     from .dsl import spec as spec
@@ -26,8 +27,8 @@ if TYPE_CHECKING:
 
 
 def __getattr__(name: str) -> Any:
-    if name in {"Context", "link", "node", "port_map", "spec", "workflow"}:
-        from .dsl import Context, link, node, port_map, spec, workflow
+    if name in {"Context", "link", "links", "node", "port_map", "spec", "workflow"}:
+        from .dsl import Context, link, links, node, port_map, spec, workflow
 
         return {
             "Context": Context,

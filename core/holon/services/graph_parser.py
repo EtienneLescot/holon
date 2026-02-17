@@ -54,10 +54,18 @@ def parse_graph(source_code: str) -> Graph:
 
     link_class_collector = _LinkClassCollector()
     module.visit(link_class_collector)
+    
+    # New: >> operator link syntax
+    rshift_collector = _RShiftLinkCollector()
+    module.visit(rshift_collector)
+    
+    # New: .uses() dependency binding syntax
+    uses_collector = _UsesBindingCollector()
+    module.visit(uses_collector)
 
     return Graph(
         nodes=[*node_collector.nodes, *spec_collector.nodes, *class_node_collector.nodes],
-        edges=[*link_collector.edges, *link_class_collector.edges],
+        edges=[*link_collector.edges, *link_class_collector.edges, *rshift_collector.edges, *uses_collector.edges],
     )
 
 
@@ -93,8 +101,8 @@ class _HolonFunctionCollector(cst.CSTVisitor):
         if kind is None:
             return None
 
-        # Skip workflow functions - they don't become nodes in the graph
-        # Workflows are just containers for @link declarations
+        # Skip workflow functions - deprecated, file itself is the workflow
+        # But keep @links functions as metadata nodes so UI knows where to inject edges
         if kind == "workflow":
             return None
 
@@ -355,6 +363,8 @@ def _extract_holon_kind(node: cst.FunctionDef) -> str | None:
         return "node"
     if any(_decorator_matches(d, "workflow") for d in decorators):
         return "workflow"
+    if any(_decorator_matches(d, "links") for d in decorators):
+        return "links"
     return None
 
 
@@ -831,4 +841,245 @@ class _LinkClassCollector(cst.CSTVisitor):
                 
             return node_id, port
         return None, None
+
+
+@dataclass(slots=True)
+class _RShiftLinkCollector(cst.CSTVisitor):
+    """Collect port links declared via >> operator syntax.
+    
+    Detects patterns like:
+        TriggerChat.out >> LangchainAgent.input
+        ClassRef.output >> AnotherClass.input
+    
+    This provides a more idiomatic Python syntax compared to @link decorators.
+    """
+
+    edges: list[Edge]
+    _workflow_stack: list[str]
+    _seen: set[tuple[str, str, str, str]]
+
+    def __init__(self) -> None:
+        self.edges = []
+        self._workflow_stack = []
+        self._seen = set()
+
+    def visit_FunctionDef(self, node: cst.FunctionDef) -> bool | None:
+        """Track workflow or links context."""
+        if self._workflow_stack:
+            return False
+
+        kind = _extract_holon_kind(node)
+        if kind not in ("workflow", "links"):
+            return True
+
+        self._workflow_stack.append(node.name.value)
+        return True
+
+    def leave_FunctionDef(self, original_node: cst.FunctionDef) -> None:
+        """Exit workflow context."""
+        if self._workflow_stack and self._workflow_stack[-1] == original_node.name.value:
+            self._workflow_stack.pop()
+
+    def visit_Expr(self, node: cst.Expr) -> None:
+        """Visit expression statements to find >> operations."""
+        if not self._workflow_stack:
+            return None
+
+        # Check if this is a BinaryOperation with >> (RightShift)
+        if not isinstance(node.value, cst.BinaryOperation):
+            return None
+        
+        if not isinstance(node.value.operator, cst.RightShift):
+            return None
+
+        # Extract source and target from the >> operation
+        link = self._parse_rshift_link(node.value)
+        if link is None:
+            return None
+
+        key = (link.source, link.source_port or "", link.target, link.target_port or "")
+        if key in self._seen:
+            return None
+        self._seen.add(key)
+        self.edges.append(link)
+        return None
+
+    def _parse_rshift_link(self, binop: cst.BinaryOperation) -> Edge | None:
+        """Parse a >> binary operation into an Edge.
+        
+        Handles patterns like:
+            ClassNameA.port_out >> ClassNameB.port_in
+        
+        Returns:
+            Edge object or None if parsing failed
+        """
+        # Parse left side (source)
+        source = self._parse_port_reference(binop.left)
+        if source is None:
+            return None
+        
+        # Parse right side (target) - could be nested >> (chaining)
+        target = self._parse_port_reference(binop.right)
+        if target is None:
+            # Check if right side is another >> (chaining not supported for now)
+            return None
+        
+        source_node, source_port = source
+        target_node, target_port = target
+        
+        return Edge(
+            source=source_node,
+            target=target_node,
+            source_port=source_port,
+            target_port=target_port,
+            kind="link",
+        )
+
+    def _parse_port_reference(self, expr: cst.BaseExpression) -> tuple[str, str] | None:
+        """Parse a port reference like ClassName.port_name.
+        
+        Args:
+            expr: Expression to parse
+            
+        Returns:
+            Tuple of (node_id, port_name) or None if invalid
+        """
+        # Must be an Attribute access: ClassName.port_name
+        if not isinstance(expr, cst.Attribute):
+            return None
+        
+        # Get port name (the attribute name)
+        if not isinstance(expr.attr, cst.Name):
+            return None
+        port_name = expr.attr.value
+        
+        # Get class/node name (the value being accessed)
+        if not isinstance(expr.value, cst.Name):
+            return None
+        class_name = expr.value.value
+        
+        # The class_name should correspond to a @node decorated class
+        # We need to resolve it to a node ID
+        # For now, we'll use the class name directly - the validator/resolver
+        # will handle matching it to the actual node ID
+        
+        return (class_name, port_name)
+
+
+@dataclass(slots=True)
+class _UsesBindingCollector(cst.CSTVisitor):
+    """Collect dependency bindings declared via .uses() method calls.
+    
+    Detects patterns like:
+        LangchainAgent.uses(llm=LlmModel.output, memory=Memory.output)
+    
+    This represents resource/dependency injection, not data flow.
+    Creates edges with kind="dependency".
+    """
+
+    edges: list[Edge]
+    _workflow_or_links_stack: list[str]
+    _seen: set[tuple[str, str, str, str]]
+
+    def __init__(self) -> None:
+        self.edges = []
+        self._workflow_or_links_stack = []
+        self._seen = set()
+
+    def visit_FunctionDef(self, node: cst.FunctionDef) -> bool | None:
+        """Track workflow or links context."""
+        if self._workflow_or_links_stack:
+            return False
+
+        kind = _extract_holon_kind(node)
+        if kind not in ("workflow", "links"):
+            return True
+
+        self._workflow_or_links_stack.append(node.name.value)
+        return True
+
+    def leave_FunctionDef(self, original_node: cst.FunctionDef) -> None:
+        """Exit workflow/links context."""
+        if self._workflow_or_links_stack and self._workflow_or_links_stack[-1] == original_node.name.value:
+            self._workflow_or_links_stack.pop()
+
+    def visit_Expr(self, node: cst.Expr) -> None:
+        """Visit expression statements to find .uses() calls."""
+        if not self._workflow_or_links_stack:
+            return None
+
+        # Check if this is a method call
+        if not isinstance(node.value, cst.Call):
+            return None
+        
+        # Check if it's a .uses() call
+        if not isinstance(node.value.func, cst.Attribute):
+            return None
+        
+        if not isinstance(node.value.func.attr, cst.Name):
+            return None
+        
+        if node.value.func.attr.value != "uses":
+            return None
+        
+        # Extract target node (the object .uses() is called on)
+        if not isinstance(node.value.func.value, cst.Name):
+            return None
+        
+        target_class = node.value.func.value.value
+        
+        # Parse keyword arguments: llm=LlmModel.output
+        for arg in node.value.args:
+            if arg.keyword is None:
+                continue  # Skip positional args
+            
+            target_port_name = arg.keyword.value
+            
+            # Parse the value (should be ClassName.port_name)
+            source = self._parse_port_reference(arg.value)
+            if source is None:
+                continue
+            
+            source_class, source_port = source
+            
+            # Create edge for this dependency binding
+            key = (source_class, source_port, target_class, target_port_name)
+            if key in self._seen:
+                continue
+            self._seen.add(key)
+            
+            self.edges.append(
+                Edge(
+                    source=source_class,
+                    target=target_class,
+                    source_port=source_port,
+                    target_port=target_port_name,
+                    kind="link",  # Mark as dependency, not data flow
+                )
+            )
+
+    def _parse_port_reference(self, expr: cst.BaseExpression) -> tuple[str, str] | None:
+        """Parse a port reference like ClassName.port_name.
+        
+        Args:
+            expr: Expression to parse
+            
+        Returns:
+            Tuple of (class_name, port_name) or None if invalid
+        """
+        # Must be an Attribute access: ClassName.port_name
+        if not isinstance(expr, cst.Attribute):
+            return None
+        
+        # Get port name (the attribute name)
+        if not isinstance(expr.attr, cst.Name):
+            return None
+        port_name = expr.attr.value
+        
+        # Get class/node name (the value being accessed)
+        if not isinstance(expr.value, cst.Name):
+            return None
+        class_name = expr.value.value
+        
+        return (class_name, port_name)
 

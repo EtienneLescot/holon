@@ -43,7 +43,12 @@ const SPEC_TYPE_REGISTRY: Record<string, { type: string; ports: PortSpec[] }> = 
   },
 };
 
-function inferPorts(input: { kind: "node" | "workflow" | "spec"; nodeType?: string | undefined }): PortSpec[] {
+function inferPorts(input: { kind: "node" | "workflow" | "spec" | "links"; nodeType?: string | undefined }): PortSpec[] {
+  // Links nodes are metadata only - no visual ports
+  if (input.kind === "links") {
+    return [];
+  }
+  
   if (input.kind === "workflow") {
     return [{ id: "start", direction: "output", kind: "control", label: "start" }];
   }
@@ -70,7 +75,7 @@ function inferPorts(input: { kind: "node" | "workflow" | "spec"; nodeType?: stri
 type UiNode = {
   id: string;
   name: string;
-  kind: "node" | "workflow" | "spec";
+  kind: "node" | "workflow" | "spec" | "links";
   label: string;
   nodeType?: string | null;
   props?: Record<string, unknown> | null;
@@ -93,7 +98,10 @@ function prepareUiGraph(
   positions: Record<string, { x: number; y: number }>,
   annotations: Record<string, { summary?: string; badges?: string[] }>
 ): { nodes: UiNode[]; edges: UiEdge[] } {
-  const nodes: UiNode[] = (graph.nodes || []).map((n: any) => {
+  // Filter out metadata nodes (links functions) - they don't appear in the canvas
+  const visibleNodes = (graph.nodes || []).filter((n: any) => n.kind !== "links");
+  
+  const nodes: UiNode[] = visibleNodes.map((n: any) => {
     const pos = positions[n.id];
     const ann = annotations[n.id];
     const nodeType = n.nodeType ?? n.node_type;
@@ -113,11 +121,22 @@ function prepareUiGraph(
     };
   });
 
+  // Create mapping from class name to node ID for edge resolution
+  const nodeNameToId = new Map<string, string>();
+  (graph.nodes || []).forEach((n: any) => {
+    nodeNameToId.set(n.name, n.id);
+  });
+
   const edges: UiEdge[] = (graph.edges || []).map((e: any) => {
     const sourcePort = e.sourcePort ?? e.source_port ?? "output";
     const targetPort = e.targetPort ?? e.target_port ?? "input";
     const kind = e.kind ?? "code";
-    return { source: e.source, target: e.target, sourcePort, targetPort, kind };
+    
+    // Map class names to node IDs
+    const sourceId = nodeNameToId.get(e.source) ?? e.source;
+    const targetId = nodeNameToId.get(e.target) ?? e.target;
+    
+    return { source: sourceId, target: targetId, sourcePort, targetPort, kind };
   });
 
   const seen = new Set<string>();
@@ -303,13 +322,15 @@ function savePositions(scope: string, next: Record<string, { x: number; y: numbe
   }
 }
 
-function pickWorkflowName(graph: CoreGraph | undefined): string | undefined {
+function pickLinksFunction(graph: CoreGraph | undefined): string | undefined {
   if (!graph) {
     return undefined;
   }
-  const workflows = graph.nodes.filter((n) => n.kind === "workflow");
-  const main = workflows.find((w) => w.name === "main");
-  return main?.name ?? workflows[0]?.name;
+  // Find @links functions - they contain the edge definitions
+  const linksFunctions = graph.nodes.filter((n) => n.kind === "links");
+  // Prefer common names, otherwise use the first one
+  const preferred = linksFunctions.find((f) => ["define_routing", "define_wiring", "define_links", "links", "main"].includes(f.name));
+  return preferred?.name ?? linksFunctions[0]?.name;
 }
 
 class BrowserDevBridge {
@@ -617,19 +638,28 @@ class BrowserDevBridge {
     }
 
     if (msg.type === "ui.edgeCreated") {
-      const workflowName = pickWorkflowName(this.lastGraph);
-      if (!workflowName) {
-        postToUi({ type: "graph.error", error: "No workflow found in source (need @workflow def)." });
+      const linksFunctionName = pickLinksFunction(this.lastGraph);
+      if (!linksFunctionName) {
+        postToUi({ type: "graph.error", error: "No @links function found. Create one to define connections." });
+        return;
+      }
+
+      // Map node IDs back to class names for the patcher
+      const sourceNode = this.lastGraph?.nodes.find((n) => n.id === msg.edge.source);
+      const targetNode = this.lastGraph?.nodes.find((n) => n.id === msg.edge.target);
+      
+      if (!sourceNode || !targetNode) {
+        postToUi({ type: "graph.error", error: "Cannot find source or target node" });
         return;
       }
 
       await fetchJson<{ source: string }>("/api/add_link", {
         method: "POST",
         body: JSON.stringify({
-          workflow_name: workflowName,
-          source_node_id: msg.edge.source,
+          links_function_name: linksFunctionName,
+          source_node_id: sourceNode.name,  // Use class name, not ID
           source_port: msg.edge.sourcePort ?? "output",
-          target_node_id: msg.edge.target,
+          target_node_id: targetNode.name,  // Use class name, not ID
           target_port: msg.edge.targetPort ?? "input",
         }),
       }).then((r) => {

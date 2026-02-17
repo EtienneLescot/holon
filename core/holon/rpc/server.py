@@ -60,11 +60,17 @@ class _AddSpecNodeParams(BaseModel):
 
 class _AddLinkParams(BaseModel):
     source: str
-    workflow_name: str
+    workflow_name: str  # Deprecated: use links_function_name instead
+    links_function_name: str | None = None  # New parameter name
     source_node_id: str
     source_port: str
     target_node_id: str
     target_port: str
+
+    @property
+    def function_name(self) -> str:
+        """Get the links function name, preferring new parameter over deprecated one."""
+        return self.links_function_name or self.workflow_name
 
 
 class _PatchSpecNodeParams(BaseModel):
@@ -219,7 +225,7 @@ def handle_request(request: Any) -> dict[str, Any]:
             params = _parse_params(request.get("params"), _AddLinkParams)
             updated = add_link_source(
                 params.source,
-                workflow_name=params.workflow_name,
+                links_function_name=params.function_name,
                 source_node_id=params.source_node_id,
                 source_port=params.source_port,
                 target_node_id=params.target_node_id,

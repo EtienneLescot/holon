@@ -22,7 +22,7 @@ export type CorePosition = { x: number; y: number };
 export type CoreNode = {
   id: string;
   name: string;
-  kind: "node" | "workflow" | "spec";
+  kind: "node" | "workflow" | "spec" | "links";
   position?: CorePosition | null;
   label?: string | null;
   node_type?: string | null;
@@ -462,7 +462,7 @@ function isCoreNode(value: unknown): value is CoreNode {
   return (
     typeof value["id"] === "string" &&
     typeof value["name"] === "string" &&
-    (kind === "node" || kind === "workflow" || kind === "spec") &&
+    (kind === "node" || kind === "workflow" || kind === "spec" || kind === "links") &&
     positionOk
   );
 }

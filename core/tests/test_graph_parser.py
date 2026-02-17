@@ -87,3 +87,67 @@ def test_parse_graph_ignores_unknown_calls() -> None:
         ("node:trigger:test2", "node:a"),
         ("node:a", "node:b"),  # Parser doesn't validate existence, just extracts structure
     ]
+
+
+def test_parse_graph_rshift_operator_syntax() -> None:
+    """Test the new >> operator syntax for defining links."""
+    source = textwrap.dedent(
+        """
+        from holon import node, links
+
+        @node(type="trigger.chat", id="node:trigger:chat:main")
+        class TriggerChat:
+            pass
+
+        @node(type="langchain.agent", id="node:langchain:agent:assistant")
+        class LangchainAgent:
+            pass
+
+        @node(type="llm.model", id="node:llm:model:gpt4o")
+        class LlmModel:
+            pass
+
+        @links
+        def define_routing():
+            '''Define workflow connections'''
+            
+            # Dependency binding
+            LangchainAgent.uses(llm=LlmModel.output)
+            
+            # Pipeline flow
+            TriggerChat.out >> LangchainAgent.input
+            LangchainAgent.output >> TriggerChat.response
+        """
+    )
+
+    graph = parse_graph(source)
+
+    # Verify nodes are extracted correctly (3 @node classes + 1 @links function)
+    assert len(graph.nodes) == 4
+    
+    # Verify the 3 @node classes
+    node_nodes = [n for n in graph.nodes if n.kind == "spec"]
+    assert len(node_nodes) == 3
+    node_names = {n.name for n in node_nodes}
+    assert node_names == {"TriggerChat", "LangchainAgent", "LlmModel"}
+    
+    # Verify the @links function node
+    links_nodes = [n for n in graph.nodes if n.kind == "links"]
+    assert len(links_nodes) == 1
+    assert links_nodes[0].name == "define_routing"
+
+    # Verify all 3 edges are extracted (both >> and .uses())
+    assert len(graph.edges) == 3
+    
+    # All edges use kind="link" (both pipeline flow and dependency binding)
+    assert all(e.kind == "link" for e in graph.edges)
+    
+    # Verify specific edges exist
+    edge_tuples = [(e.source, e.source_port, e.target, e.target_port) for e in graph.edges]
+    
+    # Pipeline flow edges (>> operator)
+    assert ("TriggerChat", "out", "LangchainAgent", "input") in edge_tuples
+    assert ("LangchainAgent", "output", "TriggerChat", "response") in edge_tuples
+    
+    # Dependency binding edge (.uses() method)
+    assert ("LlmModel", "output", "LangchainAgent", "llm") in edge_tuples

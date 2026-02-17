@@ -33,7 +33,7 @@ class Node(BaseModel):
 
     id: str = Field(..., description="Stable unique identifier")
     name: str = Field(..., description="Function name in source code")
-    kind: Literal["node", "workflow", "spec"] = Field(..., description="Node role")
+    kind: Literal["node", "workflow", "spec", "links"] = Field(..., description="Node role")
     position: Position | None = Field(default=None, description="Optional canvas position")
 
     # Optional extended metadata for "spec" nodes.

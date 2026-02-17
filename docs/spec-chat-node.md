@@ -264,9 +264,11 @@ Le node peut recevoir des commandes sur `in.control` :
 **Exemple d'usage** :
 
 ```python
-@workflow
-async def main():
-    # Reset chat avant nouvelle session
+from holon import links
+
+@links
+def define_routing():
+    # Commande de contrôle via mapping
     @port_map
     class _:
         source = (ControlNode, "out.command")
@@ -613,11 +615,30 @@ class AgentNode:
     temperature = 0.7
 
 # Workflow avec boucle
-@workflow
-async def main() -> str:
+from holon import node, links
+
+@node(type="trigger.chat", id="node:chat:main")
+class ChatNode:
+    placeholder = "Type your message..."
+
+@node(type="langchain.agent", id="node:agent:assistant")
+class AgentNode:
+    system_prompt = "You are a helpful assistant."
+
+@node(type="llm.model", id="node:llm:gpt4o")
+class LlmModel:
+    provider = "openai"
+    model_name = "gpt-4o"
+
+@links
+def define_routing():
     """Conversational loop: User → Agent → User."""
     
-    # Mapping: Chat → Agent (user message)
+    # 1. Dependency binding
+    AgentNode.uses(llm=LlmModel.output)
+    
+    # 2. Pipeline flow avec transformation
+    # Chat → Agent (user message avec extraction de contenu)
     @port_map
     class _:
         source = (ChatNode, "out.message")
@@ -625,15 +646,23 @@ async def main() -> str:
         transform = "$.content"
         target_field = "user"
     
-    # Mapping: Agent → Chat (assistant response)
+    # Agent → Chat (assistant response, mapping simple)
     @port_map
     class _:
         source = (AgentNode, "out.response")
         target = (ChatNode, "in.message")
         # Identity mapping (pas de transform)
-    
-    # Le workflow reste actif (boucle infinie)
-    return "Chat active"
+```
+
+**Alternative pour cas simple** (sans transformation) :
+
+```python
+@links
+def define_routing():
+    # Si pas de transformation nécessaire, utiliser >>
+    AgentNode.uses(llm=LlmModel.output)
+    ChatNode.out >> AgentNode.input
+    AgentNode.output >> ChatNode.response
 ```
 
 **Flux de données** :

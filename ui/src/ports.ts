@@ -87,7 +87,12 @@ export const SPEC_TYPE_REGISTRY: Record<string, SpecTypeRegistryEntry> = {
   },
 };
 
-export function inferPorts(input: { kind: "node" | "workflow" | "spec"; nodeType?: string | undefined }): PortSpec[] {
+export function inferPorts(input: { kind: "node" | "workflow" | "spec" | "links"; nodeType?: string | undefined }): PortSpec[] {
+  // Links nodes are metadata only - no visual ports
+  if (input.kind === "links") {
+    return [];
+  }
+  
   if (input.kind === "workflow") {
     return [{ id: "start", direction: "output", kind: "control", label: "start" }];
   }

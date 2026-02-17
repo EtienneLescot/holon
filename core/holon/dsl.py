@@ -21,6 +21,184 @@ R = TypeVar("R")
 F = TypeVar("F", bound=Callable[..., Any])
 
 
+# ============================================================================
+# Port Classes for >> Operator Syntax
+# ============================================================================
+
+class Port:
+    """Base class for node ports.
+    
+    Ports represent connection points on nodes. When used with the >> operator,
+    they create explicit links between nodes in the workflow graph.
+    
+    Example:
+        TriggerChat.out >> LangchainAgent.input
+    """
+    
+    def __init__(self, node_ref: str | type, port_name: str) -> None:
+        """Initialize a port.
+        
+        Args:
+            node_ref: Node identifier (class name or node ID string)
+            port_name: Port name on the node
+        """
+        # Store the node reference (can be class name or node ID)
+        if isinstance(node_ref, type):
+            self.node_ref = node_ref.__name__
+        else:
+            self.node_ref = node_ref
+        self.port_name = port_name
+        
+        # Track source info for parser
+        self._node_class = node_ref if isinstance(node_ref, type) else None
+
+    def __repr__(self) -> str:
+        return f"Port({self.node_ref}.{self.port_name})"
+
+
+class PortOut(Port):
+    """Output port that can be connected to an input port using >> operator.
+    
+    Example:
+        TriggerChat.out >> LangchainAgent.input
+    """
+    
+    def __rshift__(self, target: PortIn) -> PortIn:
+        """Connect this output port to an input port.
+        
+        Args:
+            target: Target input port to connect to
+            
+        Returns:
+            The target port (allows chaining: A >> B >> C)
+        """
+        # This is a marker operation - the actual link registration
+        # happens at parse time via LibCST in graph_parser.py
+        # 
+        # We return target to enable chaining: A >> B >> C
+        return target
+
+
+class PortIn(Port):
+    """Input port that receives connections from output ports.
+    
+    Example:
+        LangchainAgent.input  # Receives from: TriggerChat.out >> LangchainAgent.input
+    """
+    
+    def __rshift__(self, target: PortIn) -> PortIn:
+        """Allow chaining multiple targets.
+        
+        This enables: source_out >> target1_in >> target2_in
+        though this is rare in practice.
+        """
+        return target
+
+
+# ============================================================================
+# Standard Port Definitions by Node Type
+# ============================================================================
+
+# Mapping of node types to their standard ports (inputs and outputs)
+# This allows automatic port attachment when using @node decorator
+_STANDARD_PORTS: dict[str, dict[str, list[str]]] = {
+    "trigger.chat": {
+        "inputs": ["response"],  # Special response port for agent replies
+        "outputs": ["out"],      # User message output
+    },
+    "trigger.manual": {
+        "inputs": [],
+        "outputs": ["start"],
+    },
+    "langchain.agent": {
+        "inputs": ["input", "llm", "memory", "tools"],
+        "outputs": ["output"],
+    },
+    "llm.model": {
+        "inputs": [],
+        "outputs": ["output"],
+    },
+    "langchain.tool": {
+        "inputs": ["input"],
+        "outputs": ["output"],
+    },
+    "memory.buffer": {
+        "inputs": [],
+        "outputs": ["output"],
+    },
+}
+
+
+class _NodeProxy:
+    """Proxy object for node classes that provides .uses() method.
+    
+    This allows the syntax: AgentNode.uses(llm=GptModel.output)
+    for dependency injection / resource binding.
+    """
+    
+    def __init__(self, node_class: type[Any], node_id: str) -> None:
+        self._node_class = node_class
+        self._node_id = node_id
+        self._class_name = node_class.__name__
+    
+    def uses(self, **kwargs: Port) -> None:
+        """Bind resources/dependencies to this node.
+        
+        This is for dependency injection, NOT data flow.
+        
+        Example:
+            LangchainAgent.uses(llm=LlmModel.output, memory=Memory.output)
+        
+        Args:
+            **kwargs: Named dependencies (port name -> source port)
+        """
+        # This is a marker operation - the actual binding registration
+        # happens at parse time via LibCST in graph_parser.py
+        pass
+    
+    def __getattr__(self, name: str) -> Port:
+        """Get port by name for >> operator or uses() method.
+        
+        This allows both:
+            AgentNode.input  # Returns PortIn
+            AgentNode.output # Returns PortOut
+        """
+        # Delegate to the actual class attributes (ports)
+        return getattr(self._node_class, name)
+
+
+def _attach_ports_to_class(cls: type[Any], node_type: str, node_id: str) -> None:
+    """Attach port attributes to a node class for >> operator syntax.
+    
+    This function creates PortOut and PortIn attributes on the class so that
+    users can write: TriggerChat.out >> LangchainAgent.input
+    It also adds a .uses() method for dependency binding.
+    
+    Args:
+        cls: The class to attach ports to
+        node_type: The node type (e.g., "trigger.chat")
+        node_id: The node ID (e.g., "node:trigger:chat:main")
+    """
+    port_config = _STANDARD_PORTS.get(node_type)
+    
+    if not port_config:
+        # Unknown type - don't attach any ports
+        # User will need to define them manually if needed
+        return
+    
+    # Attach input ports
+    for port_name in port_config.get("inputs", []):
+        setattr(cls, port_name, PortIn(node_id, port_name))
+    
+    # Attach output ports
+    for port_name in port_config.get("outputs", []):
+        setattr(cls, port_name, PortOut(node_id, port_name))
+    
+    # Attach .uses() method via a bound method
+    proxy = _NodeProxy(cls, node_id)
+    setattr(cls, "uses", proxy.uses)
+
+
 class Context(BaseModel):
     """Execution context passed to nodes.
 
@@ -108,10 +286,24 @@ def node(
             raise TypeError(msg)
         decorated = _attach_metadata(target, kind="node_library")
         setattr(decorated, "__holon_spec_type__", type)
+        
+        # Determine node ID (use provided id or generate from class name)
         if id is not None:
+            node_id = id
             setattr(decorated, "__holon_spec_id__", id)
+        else:
+            # Generate default ID from class name (convert CamelCase to snake_case)
+            import re
+            class_name = target.__name__
+            snake_case = re.sub(r'(?<!^)(?=[A-Z])', '_', class_name).lower()
+            node_id = f"node:{type.replace('.', ':')}:{snake_case}"
+        
         if label is not None:
             setattr(decorated, "__holon_spec_label__", label)
+        
+        # Attach standard ports to the class based on node type
+        _attach_ports_to_class(decorated, type, node_id)
+        
         return decorated
 
     # No arguments: direct decoration of a function
@@ -160,6 +352,65 @@ def workflow(
         decorated = _attach_metadata(target, kind="workflow")
         if name is not None:
             setattr(decorated, "__holon_workflow_name__", name)
+        return decorated
+
+    if func is None:
+        return decorator
+
+    return decorator(func)
+
+
+@overload
+def links(func: Callable[P, R], /) -> Callable[P, R]: ...
+
+
+@overload
+def links(
+    *, name: str | None = None
+) -> Callable[[Callable[P, R]], Callable[P, R]]: ...
+
+
+def links(
+    func: Callable[P, R] | None = None,
+    /,
+    *,
+    name: str | None = None,
+) -> Callable[P, R] | Callable[[Callable[P, R]], Callable[P, R]]:
+    """Mark a function as a Holon links definition.
+
+    Links functions define the connections between nodes using two syntaxes:
+    1. Pipeline Flow (>>): Chronological execution path with data payload
+       Example: TriggerChat.out >> LangchainAgent.input
+    
+    2. Dependency Binding (.uses()): Resource/capability injection
+       Example: LangchainAgent.uses(llm=LlmModel.output)
+
+    This decorator is particularly useful for separating connection logic
+    from execution logic in complex workflows.
+
+    Args:
+        func: Function to decorate.
+        name: Optional explicit links function name.
+
+    Returns:
+        The decorated function (identity at runtime).
+        
+    Example:
+        @links
+        def define_routing():
+            '''Define workflow connections'''
+            # Dependencies
+            LangchainAgent.uses(llm=LlmModel.output)
+            
+            # Data flow
+            TriggerChat.out >> LangchainAgent.input
+            LangchainAgent.output >> TriggerChat.response
+    """
+
+    def decorator(target: Callable[P, R]) -> Callable[P, R]:
+        decorated = _attach_metadata(target, kind="links")
+        if name is not None:
+            setattr(decorated, "__holon_links_name__", name)
         return decorated
 
     if func is None:

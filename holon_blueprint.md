@@ -76,8 +76,10 @@ Invariants :
   - Sur une **fonction** → node custom (code inline).
   - Sur une **classe avec `type=`** → node library (préfabriquée, basée sur attributs de classe).
 - `@workflow` : marque une fonction dont le corps est analysé pour dériver des liens implicites (workflow→node).
-- `@link` : **[Recommandé]** décorateur sur une classe pour définir un lien explicite entre deux nodes. Utilise les attributs `source` et `target` (tuples de `(node, port)`).
-- `link(source_node_id, source_port, target_node_id, target_port)` : forme bas-niveau pour déclarer un lien explicite. **Déprécié** au profit de `@link` sur classe.
+- `@links` : **[Recommandé]** décorateur pour définir les connexions entre nodes via deux syntaxes :
+  - **Pipeline Flow (`>>`)** : flux d'exécution chronologique avec payload de données
+  - **Dependency Binding (`.uses()`)** : injection de ressources/capacités dans un node
+- `@link` : **[Déprécié]** décorateur sur une classe pour définir un lien explicite. Remplacé par `>>` et `.uses()`.
 - `spec(node_id, *, type: str, label?: str, props?: dict)` : forme bas-niveau pour déclarer une node préfabriquée (config pure). **Déprécié** au profit de `@node` sur classe.
 
 ### Le décorateur `@node` unifié (code-first, AI-friendly)
@@ -106,6 +108,7 @@ class MyGPT4:
 - **Fonction** : `@node` (sans paramètres) → node custom. Le nom de la fonction devient le node ID (`node:<function_name>`).
 - **Classe** : `@node(type="...")` (avec `type` obligatoire) → node library. Les attributs de classe (non-privés, non-callables) sont collectés comme `props` au moment du parsing.
 - Paramètres optionnels pour nodes library : `id` (par défaut `spec:<type>:<class_name_snake_case>`), `label` (par défaut dérivé du nom de classe).
+- **Ports automatiques** : Le décorateur attache automatiquement les ports standards (`.input`, `.output`, etc.) en fonction du `type`.
 
 **Pourquoi**:
 - **Symétrie conceptuelle** : tout est `@node`, pas de confusion entre `@node` et `@spec_node`.
@@ -113,47 +116,69 @@ class MyGPT4:
 - **Refactoring-friendly** : renommer/modifier des attributs est plus simple qu'éditer du JSON ou des kwargs.
 - **Patchable via LibCST** : le parser extrait les attributs de classe et les convertit en `props` dict au moment de la génération du graphe.
 
-### Le décorateur `@link` code-first
+### Le décorateur `@links` : séparation Pipeline Flow / Dependency Binding
 
-**Philosophie**: définir les liens entre nodes via des classes décorées plutôt que des appels de fonction avec strings.
+**Philosophie**: Distinguer clairement deux types de connexions pour éviter toute ambiguïté sémantique.
 
-**Syntaxe**:
+**1. Pipeline Flow (`>>`)** : Flux d'exécution chronologique
 ```python
-@workflow
-async def main() -> str:
-    y = analyze(1)
+# Données transitant du trigger vers l'agent puis retour au trigger
+TriggerChat.out >> LangchainAgent.input
+LangchainAgent.output >> TriggerChat.response
+```
+
+**2. Dependency Binding (`.uses()`)** : Injection de ressources
+```python
+# L'agent est équipé d'un LLM avant son exécution
+LangchainAgent.uses(llm=LlmModel.output)
+```
+
+**Exemple complet**:
+```python
+from holon import node, links
+
+@node(type="trigger.chat", id="node:trigger:chat:main")
+class TriggerChat:
+    placeholder = "Posez votre question..."
+
+@node(type="langchain.agent", id="node:langchain:agent:assistant")
+class LangchainAgent:
+    system_prompt = "You are a helpful assistant."
+
+@node(type="llm.model", id="node:llm:model:gpt4o")
+class LlmModel:
+    provider = "openai"
+    model_name = "gpt-4o"
+
+@links
+def define_routing():
+    """Définition des connexions : Control Flow et Data Flow"""
     
-    @link
-    class _:
-        source = (analyze, "output")
-        target = (LangChainAgent3, "input")
+    # 1. DEPENDENCY BINDING (Ressources / Sub-nodes)
+    LangchainAgent.uses(llm=LlmModel.output)
     
-    @link
-    class _:
-        source = (LLMModel, "llm")
-        target = (LangChainAgent3, "llm")
-    
-    return await summarize(y)
+    # 2. PIPELINE FLOW (Séquence d'exécution)
+    TriggerChat.out >> LangchainAgent.input
+    LangchainAgent.output >> TriggerChat.response
 ```
 
 **Règles**:
-- Le décorateur `@link` s'applique sur une classe (typiquement nommée `_` pour indiquer qu'elle est anonyme).
-- Attributs obligatoires : `source` et `target` (tuples de `(node_reference, port_name)`).
-- `node_reference` peut être :
-  - Une fonction décorée avec `@node` (node custom).
-  - Une classe décorée avec `@node(type="...")` (node library).
-  - Une string pour compatibilité (déprécié).
+- Le décorateur `@links` s'applique sur une fonction (nom recommandé : `define_routing`)
+- **Pipeline Flow (`>>`)** : représente le flux chronologique de données (items passant de node en node)
+- **Dependency Binding (`.uses()`)** : représente l'équipement d'un node avec des ressources avant exécution
+- Ne **jamais confondre** les deux : un LLM n'est pas dans le pipeline, il est une dépendance de l'agent
 
 **Pourquoi**:
-- **Code-first** : références directes aux nodes (autocomplétion IDE, refactoring automatique).
-- **Lisibilité** : structure claire (classe = lien, attributs = source/target).
-- **AI-friendly** : les agents IA peuvent suivre les références entre classes/fonctions.
-- **Type-safe** : plus de strings magiques, moins d'erreurs.
+- **Clarté sémantique** : distinction explicite entre flux de données et injection de dépendances
+- **Idiomatique Python** : l'opérateur `>>` est familier (Airflow, LangChain, Haystack)
+- **Lisible visuellement** : `>>` montre clairement la direction du flux
+- **Type-safe** : les ports sont des objets Python avec autocomplétion IDE
+- **AI-friendly** : la structure est immédiatement compréhensible par les agents IA
 
 ### Liens
 
 - Implicites : dérivés des appels à des nodes dans `@workflow`.
-- Explicites : déclarés via `@link` sur classe (recommandé) ou `link(...)` fonction (déprécié).
+- Explicites : déclarés via `>>` (pipeline flow) et `.uses()` (dependency binding) dans `@links`.
 
 ## 6) Modèle d'édition (AI-first)
 

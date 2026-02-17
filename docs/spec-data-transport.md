@@ -118,9 +118,14 @@ DataEnvelope(
 
 ### 2.2) Mapping entre ports : `@port_map`
 
-**Philosophie** : suivre le pattern Holon (`@node`, `@workflow`, `@link`) → ajouter `@port_map` pour déclarer les transformations.
+**Philosophie** : suivre le pattern Holon (`@node`, `@links`, `@workflow`) → utiliser `>>` pour le flux simple, `.uses()` pour les dépendances, et `@port_map` pour les transformations complexes.
 
-**Syntaxe proposée**:
+**Contexte d'utilisation** :
+- **Pipeline simple** : `SourceNode.out >> TargetNode.in` (pas de transformation)
+- **Dépendance** : `AgentNode.uses(llm=LlmModel.output)` (injection de ressource)
+- **Transformation** : `@port_map` (extraction, mapping de champs, JSONPath)
+
+**Syntaxe @port_map** (pour transformations complexes):
 
 ```python
 from holon import port_map
@@ -330,7 +335,7 @@ class PortMapVisitor(cst.CSTVisitor):
             ))
 ```
 
-**Note** : suivre le même pattern que `@link` (déjà implémenté dans `graph_parser.py`).
+**Note** : Le parser extrait les `@port_map` de la même manière que les opérations `>>` et `.uses()` (déjà implémenté dans `graph_parser.py`).
 
 ---
 
@@ -963,7 +968,7 @@ class _:
 2. **Contextuelle** : les références directes (`ChatNode`) sont résolvables par l'IA (follow imports).
 3. **Lisible** : structure claire (1 mapping = 1 classe).
 4. **Modifiable** : l'IA peut facilement remplacer `transform = "$.content"` par `transform = "$.metadata.text"`.
-5. **Pattern matching** : l'IA reconnaît le pattern `@port_map` + `class _` (similaire à `@link`).
+5. **Pattern matching** : l'IA reconnaît le pattern `@port_map` avec déclaration de classe (similaire aux autres décorateurs Holon).
 6. **Type hints implicites** : les tuples `(Node, "port")` sont explicites.
 7. **No magic strings** : les node references sont des symboles Python (autocomplete, refactoring).
 

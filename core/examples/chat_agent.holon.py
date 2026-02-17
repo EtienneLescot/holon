@@ -9,7 +9,7 @@ This example demonstrates a bidirectional chat system where:
 Flow: User → ChatTrigger → Agent → ChatTrigger → User (loop)
 """
 
-from holon import node, workflow, link
+from holon import node, links
 
 
 # Chat Trigger
@@ -41,39 +41,25 @@ class LlmModel:
     temperature: float = 0.7
 
 
-@workflow
-async def main() -> str:
+@links
+def define_routing():
     """
-    Interactive chat loop with agent.
+    Define workflow connections.
     
-    The workflow establishes a bidirectional connection:
-    1. User messages from chat → agent input
-    2. Agent responses → chat display (loop back)
+    Separates two types of connections:
+    1. Dependency Binding (.uses): Resource injection before execution
+    2. Pipeline Flow (>>): Chronological data flow during execution
     """
     
-    # Chat user message → Agent
-    @link
-    class _:
-        source = ("node:trigger:chat:conversation", "out")
-        target = ("node:agent:conversational", "input")
+    # 1. DEPENDENCY BINDING - Equip the agent with required resources
+    AgentNode.uses(llm=LlmModel.output)
     
-    # LLM → Agent (required)
-    @link
-    class _:
-        source = ("node:llm:agent_model", "output")
-        target = ("node:agent:conversational", "llm")
-    
-    # Agent response → Chat (loop back)
-    @link
-    class _:
-        source = ("node:agent:conversational", "output")
-        target = ("node:trigger:chat:conversation", "response")
-    
-    # The workflow remains active to maintain the conversation loop
-    return "Chat system active - waiting for user input"
+    # 2. PIPELINE FLOW - Define the conversation loop
+    ChatTrigger.out >> AgentNode.input
+    AgentNode.output >> ChatTrigger.response
 
 
 if __name__ == "__main__":
-    import asyncio
-    result = asyncio.run(main())
-    print(result)
+    # Call the routing definition to register connections
+    define_routing()
+    print("Chat workflow connections defined")
