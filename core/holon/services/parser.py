@@ -32,7 +32,7 @@ def count_node_decorated_functions(source_code: str) -> int:
         libcst.ParserSyntaxError: If the source code is not valid Python.
     """
 
-    return sum(1 for n in parse_functions(source_code) if n.kind == "node")
+    return sum(1 for n in parse_functions(source_code) if n.kind == "inline_code")
 
 
 def parse_functions(source_code: str) -> list[Node]:
@@ -40,7 +40,7 @@ def parse_functions(source_code: str) -> list[Node]:
 
     Phase 1 extracts only top-level metadata:
     - function name
-    - kind (``node`` or ``workflow``)
+    - kind (``inline_code`` for @node, ``workflow`` for @workflow)
 
     Args:
         source_code: Python source code to parse.
@@ -69,6 +69,14 @@ class _HolonFunctionCollector(cst.CSTVisitor):
         kind = _extract_holon_kind(node)
         if kind is None:
             return None
+        
+        # Skip deprecated @workflow and @links decorators
+        if kind in ("workflow", "links"):
+            return None
+        
+        # Legacy @node functions are inline_code
+        if kind == "node":
+            kind = "inline_code"
 
         # Phase 1: stable id can be derived from kind + function name.
         # Later phases can add source location, module path, or hashing.
@@ -91,8 +99,8 @@ def _extract_holon_kind(node: cst.FunctionDef) -> str | None:
         node: Function definition CST node.
 
     Returns:
-        ``"node"`` if decorated as a Holon node, ``"workflow"`` if decorated
-        as a workflow, otherwise None.
+        ``"node"`` if decorated as a Holon node (will be converted to "inline_code"),
+        ``"workflow"`` if decorated as a workflow, otherwise None.
     """
 
     decorators = [d.decorator for d in node.decorators]

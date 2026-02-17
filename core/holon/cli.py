@@ -162,35 +162,32 @@ def cmd_list(args: argparse.Namespace) -> int:
         print(f"Error parsing file: {e}", file=sys.stderr)
         return 1
     
-    # Find workflows
-    workflows = [node for node in graph.nodes if node.kind == "workflow"]
-    nodes = [node for node in graph.nodes if node.kind == "node"]
-    specs = [node for node in graph.nodes if node.kind == "spec"]
+    # Find nodes by kind
+    spec_nodes = [node for node in graph.nodes if node.kind == "spec"]
+    inline_nodes = [node for node in graph.nodes if node.kind == "inline_code"]
     
     print(f"File: {workflow_file}")
     print()
     
-    if workflows:
-        print("Workflows:")
-        for wf in workflows:
-            print(f"  • {wf.name}")
+    if spec_nodes:
+        print(f"Spec Nodes: {len(spec_nodes)}")
+        for node in spec_nodes[:5]:  # Show first 5
+            node_type = node.node_type or "unknown"
+            print(f"  • {node.name} (type: {node_type})")
+        if len(spec_nodes) > 5:
+            print(f"  ... and {len(spec_nodes) - 5} more")
         print()
     
-    if nodes:
-        print(f"Nodes: {len(nodes)}")
-        for node in nodes[:5]:  # Show first 5
+    if inline_nodes:
+        print(f"Inline Code Nodes: {len(inline_nodes)}")
+        for node in inline_nodes[:5]:  # Show first 5
             print(f"  • {node.name}")
-        if len(nodes) > 5:
-            print(f"  ... and {len(nodes) - 5} more")
+        if len(inline_nodes) > 5:
+            print(f"  ... and {len(inline_nodes) - 5} more")
         print()
     
-    if specs:
-        print(f"Spec Nodes: {len(specs)}")
-        for spec in specs[:5]:  # Show first 5
-            node_type = spec.node_type or "unknown"
-            print(f"  • {spec.name} (type: {node_type})")
-        if len(specs) > 5:
-            print(f"  ... and {len(specs) - 5} more")
+    if graph.links_function_name:
+        print(f"Links Function: {graph.links_function_name}")
         print()
     
     return 0

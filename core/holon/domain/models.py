@@ -33,13 +33,13 @@ class Node(BaseModel):
 
     id: str = Field(..., description="Stable unique identifier")
     name: str = Field(..., description="Function name in source code")
-    kind: Literal["node", "workflow", "spec", "links"] = Field(..., description="Node role")
+    kind: Literal["spec", "inline_code"] = Field(..., description="Node semantic type")
     position: Position | None = Field(default=None, description="Optional canvas position")
 
-    # Optional extended metadata for "spec" nodes.
+    # Spec-specific metadata (only for kind='spec')
     label: str | None = Field(default=None, description="Optional display label")
-    node_type: str | None = Field(default=None, description="Optional node type (e.g. 'langchain.agent')")
-    props: dict[str, Any] | None = Field(default=None, description="Optional JSON-serializable configuration")
+    node_type: str | None = Field(default=None, description="Node type for specs (e.g. 'langchain.agent', 'trigger.chat')")
+    props: dict[str, Any] | None = Field(default=None, description="Configuration props for specs")
 
 
 class Edge(BaseModel):
@@ -63,6 +63,7 @@ class Graph(BaseModel):
 
     nodes: list[Node] = Field(default_factory=list)
     edges: list[Edge] = Field(default_factory=list)
+    links_function_name: str | None = Field(default=None, description="Name of @links function for edge injection")
 
 
 # ---------------------------------------------------------------------------

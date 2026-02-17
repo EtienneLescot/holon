@@ -149,7 +149,20 @@ class WorkflowRunner:
             sys.stderr.write(f"[RUNNER] Module loaded successfully\n")
             sys.stderr.flush()
             
-            # Find the workflow function
+            # Check execution mode first
+            source = file_path.read_text(encoding="utf8")
+            # Detect if we should use graph-based execution:
+            # - Has @links decorator (new syntax with >> operator)
+            # - Has link() calls or @link (legacy syntax)
+            use_graph_engine = "@links" in source or "link(" in source or "@link" in source
+            
+            if use_graph_engine:
+                # Graph-based execution - no need for @workflow function
+                sys.stderr.write(f"[RUNNER] Using graph-based execution engine\n")
+                sys.stderr.flush()
+                return await self._run_workflow_with_engine(file_path, workflow_name, source, trigger_data)
+            
+            # Legacy mode - need a @workflow function
             sys.stderr.write(f"[RUNNER] Looking for workflow function '{workflow_name}'\n")
             sys.stderr.flush()
             workflow_fn = getattr(module, workflow_name, None)
@@ -174,20 +187,9 @@ class WorkflowRunner:
             # Execute the workflow
             sys.stderr.write(f"[RUNNER] Executing workflow '{workflow_name}'\n")
             sys.stderr.flush()
-            
-            # Check if we should use graph-based execution
-            # Parse the source to see if there are link() calls
-            source = file_path.read_text(encoding="utf8")
-            use_graph_engine = "link(" in source or "@link" in source
-            
-            if use_graph_engine:
-                sys.stderr.write(f"[RUNNER] Using graph-based execution engine\n")
-                sys.stderr.flush()
-                return await self._run_workflow_with_engine(file_path, workflow_name, source, trigger_data)
-            else:
-                sys.stderr.write(f"[RUNNER] Using legacy direct execution\n")
-                sys.stderr.flush()
-                return await self.run_workflow(workflow_fn, **kwargs)
+            sys.stderr.write(f"[RUNNER] Using legacy direct execution\n")
+            sys.stderr.flush()
+            return await self.run_workflow(workflow_fn, **kwargs)
         
         except Exception as e:
             sys.stderr.write(f"[RUNNER] Exception during execution: {type(e).__name__}: {e}\n")

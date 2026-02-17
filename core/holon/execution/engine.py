@@ -129,7 +129,8 @@ class ExecutionEngine:
         sys.stderr.flush()
         
         for node in ctx.graph.nodes:
-            if node.node_type and node.kind in ("spec", "node"):
+            # Resolve all nodes with kind='spec' (declarative configs)
+            if node.kind == "spec" and node.node_type:
                 try:
                     resolved = ctx.resolver.resolve(
                         node_id=node.id,
@@ -157,17 +158,15 @@ class ExecutionEngine:
         # Find nodes that need execution
         executable = []
         for node in ctx.graph.nodes:
-            # Skip workflow entrypoint nodes
-            if node.id.startswith("workflow:"):
-                continue
-            
-            # Include function nodes (no node_type)
-            if node.kind == "node" and not node.node_type:
+            # Include inline_code nodes (legacy @node functions)
+            if node.kind == "inline_code":
                 executable.append(node.id)
             
-            # Include langchain.agent nodes (they are executable)
-            if node.node_type == "langchain.agent":
+            # Include langchain spec nodes (agents, chains, etc. that process data)
+            if node.kind == "spec" and node.node_type and node.node_type.startswith("langchain."):
                 executable.append(node.id)
+            
+            # Other spec nodes (llm.model, trigger.*, memory, tools) are resolved but not executed
         
         # Simple topological sort: nodes with no dependencies first
         ordered = []
@@ -231,17 +230,20 @@ class ExecutionEngine:
             sys.stderr.flush()
             
             try:
-                # Execute node based on type
-                # Special case: langchain.agent spec nodes need execution
-                if node.node_type == "langchain.agent":
-                    # Execute agent with port inputs
+                # Execute node based on kind and type
+                if node.kind == "spec" and node.node_type and node.node_type.startswith("langchain."):
+                    # Langchain spec nodes (agents, chains) need execution
                     output = await self._execute_agent_node(ctx, node, mapped_inputs)
-                elif node.kind == "spec" or (node.kind == "node" and node.node_type):
-                    # Other spec nodes already resolved, get their output
+                elif node.kind == "spec":
+                    # Other spec nodes (llm.model, trigger.*, etc.) are already resolved
                     output = ctx.port_registry.get_value(node_id, "output")
-                else:
-                    # Execute function/workflow node
+                elif node.kind == "inline_code":
+                    # Legacy inline code nodes or custom executables
                     output = await self._execute_node(ctx, node, mapped_inputs)
+                else:
+                    sys.stderr.write(f"[ENGINE] Unknown node kind: {node.kind}\n")
+                    sys.stderr.flush()
+                    continue
                 
                 # Wrap output in DataEnvelope if not already wrapped
                 if not isinstance(output, DataEnvelope):
@@ -365,13 +367,13 @@ class ExecutionEngine:
         return mapped_inputs
     
     async def _execute_node(self, ctx: ExecutionContext, node: Node, inputs: dict[str, Any]) -> Any:
-        """Execute a single node (function or agent call).
+        """Execute a single inline_code node.
         
-        For spec nodes of type langchain.agent, we call the agent runner with port inputs.
-        For other nodes, we look up the Python function.
+        For inline_code nodes, we look up the Python function and call it.
+        For spec nodes, they should be handled by specialized executors.
         """
-        # Check if this is a spec node that needs special handling
-        if node.kind == "spec" and node.node_type == "langchain.agent":
+        # Check if this is a langchain spec that needs execution
+        if node.kind == "spec" and node.node_type and node.node_type.startswith("langchain."):
             return await self._execute_agent_node(ctx, node, inputs)
         
         # For other nodes, we'd need to look up the Python function

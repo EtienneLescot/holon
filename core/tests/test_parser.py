@@ -29,7 +29,7 @@ def test_counts_simple_node_decorator() -> None:
     assert count_node_decorated_functions(source) == 1
 
     functions = parse_functions(source)
-    assert [(f.kind, f.name) for f in functions] == [("node", "a")]
+    assert [(f.kind, f.name) for f in functions] == [("inline_code", "a")]
 
 
 def test_counts_node_call_syntax() -> None:
@@ -49,7 +49,7 @@ def test_counts_node_call_syntax() -> None:
     assert count_node_decorated_functions(source) == 2
 
     functions = parse_functions(source)
-    assert [(f.kind, f.name) for f in functions] == [("node", "a"), ("node", "b")]
+    assert [(f.kind, f.name) for f in functions] == [("inline_code", "a"), ("inline_code", "b")]
 
 
 def test_counts_attribute_access_decorator() -> None:
@@ -69,7 +69,7 @@ def test_counts_attribute_access_decorator() -> None:
     assert count_node_decorated_functions(source) == 2
 
     functions = parse_functions(source)
-    assert [(f.kind, f.name) for f in functions] == [("node", "a"), ("node", "b")]
+    assert [(f.kind, f.name) for f in functions] == [("inline_code", "a"), ("inline_code", "b")]
 
 
 def test_does_not_count_similar_names() -> None:
@@ -88,7 +88,8 @@ def test_does_not_count_similar_names() -> None:
         """
     )
     assert count_node_decorated_functions(source) == 0
-    assert [(f.kind, f.name) for f in parse_functions(source)] == [("workflow", "b")]
+    # @workflow is deprecated and ignored - not parsed into nodes
+    assert [(f.kind, f.name) for f in parse_functions(source)] == []
 
 
 def test_counts_methods_too() -> None:
@@ -103,10 +104,11 @@ def test_counts_methods_too() -> None:
         """
     )
     assert count_node_decorated_functions(source) == 1
-    assert [(f.kind, f.name) for f in parse_functions(source)] == [("node", "m")]
+    assert [(f.kind, f.name) for f in parse_functions(source)] == [("inline_code", "m")]
 
 
 def test_extracts_workflows_too() -> None:
+    """Test that @workflow is now ignored (deprecated)."""
     source = textwrap.dedent(
         """
         from holon import node, workflow
@@ -121,7 +123,8 @@ def test_extracts_workflows_too() -> None:
         """
     )
     functions = parse_functions(source)
-    assert [(f.kind, f.name) for f in functions] == [("node", "a"), ("workflow", "main")]
+    # @workflow is deprecated and ignored
+    assert [(f.kind, f.name) for f in functions] == [("inline_code", "a")]
 
 
 def test_raises_on_invalid_syntax() -> None:

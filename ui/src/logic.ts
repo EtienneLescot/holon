@@ -19,14 +19,14 @@ export function prepareUiGraph(
   graph: any, // Use any here because input might be snake_case (backend) or camelCase
   positions: Record<string, { x: number; y: number }>,
   annotations: Record<string, { summary?: string; badges?: string[] }>
-): { nodes: UiNode[]; edges: UiEdge[] } {
+): { nodes: UiNode[]; edges: UiEdge[]; linksFunctionName?: string | null } {
   const nodes: UiNode[] = (graph.nodes || []).map((n: any) => {
     const pos = positions[n.id];
     const ann = annotations[n.id];
 
     // Map snake_case from backend or camelCase from webview
     const nodeType = n.nodeType ?? n.node_type;
-    const label = n.label ?? (n.kind === "workflow" ? `workflow: ${n.name}` : n.name);
+    const label = n.label ?? n.name;
 
     return {
       id: n.id,
@@ -42,14 +42,25 @@ export function prepareUiGraph(
     } as UiNode;
   });
 
+  // Create mapping from class name to node ID for edge resolution
+  // (Python parser returns class names in edges, not node IDs)
+  const nodeNameToId = new Map<string, string>();
+  (graph.nodes || []).forEach((n: any) => {
+    nodeNameToId.set(n.name, n.id);
+  });
+
   const edges: UiEdge[] = (graph.edges || []).map((e: any) => {
     const sourcePort = e.sourcePort ?? e.source_port ?? "output";
     const targetPort = e.targetPort ?? e.target_port ?? "input";
     const kind = e.kind ?? "code";
 
+    // Map class names to node IDs
+    const sourceId = nodeNameToId.get(e.source) ?? e.source;
+    const targetId = nodeNameToId.get(e.target) ?? e.target;
+
     return {
-      source: e.source,
-      target: e.target,
+      source: sourceId,
+      target: targetId,
       sourcePort,
       targetPort,
       kind,
@@ -65,7 +76,10 @@ export function prepareUiGraph(
     return true;
   });
 
-  return { nodes, edges: dedupedEdges };
+  // Map snake_case from backend to camelCase
+  const linksFunctionName = graph.linksFunctionName ?? graph.links_function_name ?? null;
+
+  return { nodes, edges: dedupedEdges, linksFunctionName };
 }
 
 /**

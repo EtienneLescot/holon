@@ -36,7 +36,7 @@ def test_node_decorator_with_type_creates_spec_kind() -> None:
 
 
 def test_node_decorator_without_type_creates_node_kind() -> None:
-    """Regular @node without type= should create kind="node"."""
+    """Regular @node without type= should create kind="inline_code" (legacy function node)."""
     source = textwrap.dedent(
         """
         from holon import node
@@ -52,9 +52,9 @@ def test_node_decorator_without_type_creates_node_kind() -> None:
     assert len(graph.nodes) == 1
     node = graph.nodes[0]
     
-    assert node.kind == "node"
+    assert node.kind == "inline_code"  # Legacy @node functions become inline_code
     assert node.node_type is None
-    assert node.id == "node:my_processor"
+    assert node.id == "inline_code:my_processor"
 
 
 def test_multiple_spec_nodes_all_have_spec_kind() -> None:

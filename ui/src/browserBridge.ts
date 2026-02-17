@@ -1,193 +1,6 @@
 import { ToExtensionMessageSchema, type CoreGraph } from "./protocol";
 import { getVsCodeApi, registerBrowserBridge } from "./vscodeBridge";
-
-// Inline copies to avoid Rollup import resolution issues
-
-type PortDirection = "input" | "output";
-type PortKind = "data" | "llm" | "memory" | "tool" | "parser" | "control";
-
-type PortSpec = {
-  id: string;
-  direction: PortDirection;
-  kind?: PortKind;
-  label?: string;
-  multi?: boolean;
-};
-
-const SPEC_TYPE_REGISTRY: Record<string, { type: string; ports: PortSpec[] }> = {
-  "langchain.agent": {
-    type: "langchain.agent",
-    ports: [
-      { id: "input", direction: "input", kind: "data", label: "Input" },
-      { id: "llm", direction: "input", kind: "llm", label: "LLM" },
-      { id: "memory", direction: "input", kind: "memory", label: "Memory" },
-      { id: "tools", direction: "input", kind: "tool", label: "Tools", multi: true },
-      { id: "output", direction: "output", kind: "data", label: "Output" },
-    ],
-  },
-  "llm.model": {
-    type: "llm.model",
-    ports: [{ id: "output", direction: "output", kind: "llm", label: "LLM" }],
-  },
-  "memory.buffer": {
-    type: "memory.buffer",
-    ports: [{ id: "memory", direction: "output", kind: "memory", label: "memory" }],
-  },
-  "tool.example": {
-    type: "tool.example",
-    ports: [{ id: "tool", direction: "output", kind: "tool", label: "tool" }],
-  },
-  "parser.json": {
-    type: "parser.json",
-    ports: [{ id: "parser", direction: "output", kind: "parser", label: "parser" }],
-  },
-};
-
-function inferPorts(input: { kind: "node" | "workflow" | "spec" | "links"; nodeType?: string | undefined }): PortSpec[] {
-  // Links nodes are metadata only - no visual ports
-  if (input.kind === "links") {
-    return [];
-  }
-  
-  if (input.kind === "workflow") {
-    return [{ id: "start", direction: "output", kind: "control", label: "start" }];
-  }
-  if (input.kind === "node") {
-    return [
-      { id: "input", direction: "input", kind: "data", label: "input" },
-      { id: "output", direction: "output", kind: "data", label: "output" },
-    ];
-  }
-
-  const type = input.nodeType;
-  if (type && SPEC_TYPE_REGISTRY[type]) {
-    return SPEC_TYPE_REGISTRY[type].ports;
-  }
-
-  return [
-    { id: "input", direction: "input", kind: "data", label: "input" },
-    { id: "output", direction: "output", kind: "data", label: "output" },
-  ];
-}
-
-// Inline copies of prepareUiGraph and extractTopLevelFunction to avoid Rollup import issues
-
-type UiNode = {
-  id: string;
-  name: string;
-  kind: "node" | "workflow" | "spec" | "links";
-  label: string;
-  nodeType?: string | null;
-  props?: Record<string, unknown> | null;
-  position: { x: number; y: number } | null;
-  summary?: string | null;
-  badges?: string[] | null;
-  ports: PortSpec[];
-};
-
-type UiEdge = {
-  source: string;
-  target: string;
-  sourcePort: string;
-  targetPort: string;
-  kind: "code" | "link";
-};
-
-function prepareUiGraph(
-  graph: any,
-  positions: Record<string, { x: number; y: number }>,
-  annotations: Record<string, { summary?: string; badges?: string[] }>
-): { nodes: UiNode[]; edges: UiEdge[] } {
-  // Filter out metadata nodes (links functions) - they don't appear in the canvas
-  const visibleNodes = (graph.nodes || []).filter((n: any) => n.kind !== "links");
-  
-  const nodes: UiNode[] = visibleNodes.map((n: any) => {
-    const pos = positions[n.id];
-    const ann = annotations[n.id];
-    const nodeType = n.nodeType ?? n.node_type;
-    const label = n.label ?? (n.kind === "workflow" ? `workflow: ${n.name}` : n.name);
-
-    return {
-      id: n.id,
-      name: n.name,
-      kind: n.kind,
-      label,
-      nodeType,
-      props: n.props,
-      position: pos || n.position || { x: 0, y: 0 },
-      summary: ann?.summary || n.summary,
-      badges: ann?.badges || n.badges,
-      ports: n.ports || inferPorts({ kind: n.kind, nodeType }),
-    };
-  });
-
-  // Create mapping from class name to node ID for edge resolution
-  const nodeNameToId = new Map<string, string>();
-  (graph.nodes || []).forEach((n: any) => {
-    nodeNameToId.set(n.name, n.id);
-  });
-
-  const edges: UiEdge[] = (graph.edges || []).map((e: any) => {
-    const sourcePort = e.sourcePort ?? e.source_port ?? "output";
-    const targetPort = e.targetPort ?? e.target_port ?? "input";
-    const kind = e.kind ?? "code";
-    
-    // Map class names to node IDs
-    const sourceId = nodeNameToId.get(e.source) ?? e.source;
-    const targetId = nodeNameToId.get(e.target) ?? e.target;
-    
-    return { source: sourceId, target: targetId, sourcePort, targetPort, kind };
-  });
-
-  const seen = new Set<string>();
-  const dedupedEdges = edges.filter((e) => {
-    const key = `${e.kind}:${e.source}:${e.sourcePort}->${e.target}:${e.targetPort}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-
-  return { nodes, edges: dedupedEdges };
-}
-
-function extractTopLevelFunction(source: string, functionName: string): string | undefined {
-  const lines = source.split(/\r?\n/);
-  const escapedName = functionName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const defRe = new RegExp(`^(?<indent>\\s*)(async\\s+def|def)\\s+${escapedName}\\s*\\(`);
-
-  let defLine = -1;
-  for (let i = 0; i < lines.length; i++) {
-    const m = lines[i]?.match(defRe);
-    if (m && (m.groups?.["indent"] || "").length === 0) {
-      defLine = i;
-      break;
-    }
-  }
-
-  if (defLine === -1) return undefined;
-
-  let start = defLine;
-  for (let i = defLine - 1; i >= 0; i--) {
-    const line = lines[i] || "";
-    if (line.trim().startsWith("@") || line.trim() === "") {
-      if (line.trim().startsWith("@")) start = i;
-    } else {
-      break;
-    }
-  }
-
-  let end = lines.length;
-  const boundaryRe = /^(@|def\b|async\s+def\b|class\b)/;
-  for (let i = defLine + 1; i < lines.length; i++) {
-    const line = lines[i] || "";
-    if (line.length > 0 && !line.startsWith(" ") && !line.startsWith("\t") && boundaryRe.test(line)) {
-      end = i;
-      break;
-    }
-  }
-
-  return lines.slice(start, end).join("\n").trimEnd() + "\n";
-}
+import { prepareUiGraph, extractTopLevelFunction } from "./logic";
 
 const POSITIONS_KEY_PREFIX = "holon.positions.v1:";
 
@@ -326,11 +139,8 @@ function pickLinksFunction(graph: CoreGraph | undefined): string | undefined {
   if (!graph) {
     return undefined;
   }
-  // Find @links functions - they contain the edge definitions
-  const linksFunctions = graph.nodes.filter((n) => n.kind === "links");
-  // Prefer common names, otherwise use the first one
-  const preferred = linksFunctions.find((f) => ["define_routing", "define_wiring", "define_links", "links", "main"].includes(f.name));
-  return preferred?.name ?? linksFunctions[0]?.name;
+  // Use the links function name from graph metadata
+  return graph.linksFunctionName ?? undefined;
 }
 
 class BrowserDevBridge {
@@ -400,7 +210,13 @@ class BrowserDevBridge {
     this.lastGraph = res.graph;
 
     const { nodes, edges } = prepareUiGraph(res.graph, this.positions, {});
-    postToUi({ type: this.hasSentInit ? "graph.update" : "graph.init", nodes, edges, reason });
+    postToUi({ 
+      type: this.hasSentInit ? "graph.update" : "graph.init", 
+      nodes, 
+      edges, 
+      linksFunctionName: res.graph.linksFunctionName ?? null,
+      reason 
+    });
     this.hasSentInit = true;
 
     // Show validation error if present, but don't block operations

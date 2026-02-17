@@ -42,9 +42,9 @@ def test_parse_graph_extracts_nodes_and_edges() -> None:
 
     # Nodes are collected in order: functions first, then classes
     assert [(n.kind, n.name) for n in graph.nodes] == [
-        ("node", "analyze"),
-        ("node", "summarize"),
-        ("spec", "Trigger"),  # Has type= so kind should be "spec"
+        ("inline_code", "analyze"),      # @node function → inline_code
+        ("inline_code", "summarize"),    # @node function → inline_code
+        ("spec", "Trigger"),             # @node class → spec
     ]
 
     assert [(e.source, e.target) for e in graph.edges] == [
@@ -122,8 +122,8 @@ def test_parse_graph_rshift_operator_syntax() -> None:
 
     graph = parse_graph(source)
 
-    # Verify nodes are extracted correctly (3 @node classes + 1 @links function)
-    assert len(graph.nodes) == 4
+    # Verify nodes are extracted correctly (3 @node classes, @links is metadata only)
+    assert len(graph.nodes) == 3
     
     # Verify the 3 @node classes
     node_nodes = [n for n in graph.nodes if n.kind == "spec"]
@@ -131,10 +131,8 @@ def test_parse_graph_rshift_operator_syntax() -> None:
     node_names = {n.name for n in node_nodes}
     assert node_names == {"TriggerChat", "LangchainAgent", "LlmModel"}
     
-    # Verify the @links function node
-    links_nodes = [n for n in graph.nodes if n.kind == "links"]
-    assert len(links_nodes) == 1
-    assert links_nodes[0].name == "define_routing"
+    # Verify the @links function is captured as metadata
+    assert graph.links_function_name == "define_routing"
 
     # Verify all 3 edges are extracted (both >> and .uses())
     assert len(graph.edges) == 3

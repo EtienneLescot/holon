@@ -66,6 +66,7 @@ def parse_graph(source_code: str) -> Graph:
     return Graph(
         nodes=[*node_collector.nodes, *spec_collector.nodes, *class_node_collector.nodes],
         edges=[*link_collector.edges, *link_class_collector.edges, *rshift_collector.edges, *uses_collector.edges],
+        links_function_name=node_collector.links_function_name,
     )
 
 
@@ -92,19 +93,29 @@ def parse_port_maps(source_code: str) -> list[PortMapping]:
 @dataclass(slots=True)
 class _HolonFunctionCollector(cst.CSTVisitor):
     nodes: list[Node]
+    links_function_name: str | None
 
     def __init__(self) -> None:
         self.nodes = []
+        self.links_function_name = None
 
     def visit_FunctionDef(self, node: cst.FunctionDef) -> None:
         kind = _extract_holon_kind(node)
         if kind is None:
             return None
 
-        # Skip workflow functions - deprecated, file itself is the workflow
-        # But keep @links functions as metadata nodes so UI knows where to inject edges
+        # Capture @links function name for patcher, but don't create a node
+        if kind == "links":
+            self.links_function_name = node.name.value
+            return None
+        
+        # Skip deprecated @workflow functions completely
         if kind == "workflow":
             return None
+        
+        # Legacy @node decorated functions are inline_code
+        if kind == "node":
+            kind = "inline_code"
 
         function_name = node.name.value
         self.nodes.append(

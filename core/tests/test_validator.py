@@ -235,7 +235,7 @@ def test_validate_node_without_type():
             Node(
                 id="node1",
                 name="SomeNode",
-                kind="node",  # Regular node without type
+                kind="inline_code",  # Legacy inline_code node without type
             ),
         ],
         edges=[],

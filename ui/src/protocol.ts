@@ -5,7 +5,7 @@ export const PositionSchema = z.object({
   y: z.number(),
 });
 
-export const HolonKindSchema = z.union([z.literal("node"), z.literal("workflow"), z.literal("spec"), z.literal("links")]);
+export const HolonKindSchema = z.union([z.literal("spec"), z.literal("inline_code")]);
 
 export const PortDirectionSchema = z.union([z.literal("input"), z.literal("output")]);
 
@@ -55,6 +55,7 @@ export type CoreEdge = z.infer<typeof CoreEdgeSchema>;
 export const CoreGraphSchema = z.object({
   nodes: z.array(CoreNodeSchema),
   edges: z.array(CoreEdgeSchema),
+  linksFunctionName: z.string().nullable().optional(),
 });
 
 export type CoreGraph = z.infer<typeof CoreGraphSchema>;
@@ -63,12 +64,14 @@ export const GraphInitSchema = z.object({
   type: z.literal("graph.init"),
   nodes: z.array(CoreNodeSchema),
   edges: z.array(CoreEdgeSchema),
+  linksFunctionName: z.string().nullable().optional(),
 });
 
 export const GraphUpdateSchema = z.object({
   type: z.literal("graph.update"),
   nodes: z.array(CoreNodeSchema),
   edges: z.array(CoreEdgeSchema),
+  linksFunctionName: z.string().nullable().optional(),
 });
 
 export const GraphErrorSchema = z.object({

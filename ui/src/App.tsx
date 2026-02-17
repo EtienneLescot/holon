@@ -70,11 +70,8 @@ function toReactFlowNodes(
   }
 ):
   Array<Node<UiNodeData>> {
-  // Filter out metadata nodes (links functions) - they don't appear in the canvas
-  const visibleNodes = input.filter((n) => n.kind !== "links");
-  
-  return visibleNodes.map((n, idx) => {
-    const position = n.position ?? { x: 40 + idx * 220, y: n.kind === "workflow" ? 60 : 180 };
+  return input.map((n, idx) => {
+    const position = n.position ?? { x: 40 + idx * 220, y: 180 };
     const aiStatus = opts.aiByNodeId[n.id];
     const hasError = opts.executionOutput?.[n.id]?.status === "error";
     // Normalize node_type (Python snake_case) to nodeType (TypeScript camelCase)
