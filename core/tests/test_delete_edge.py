@@ -27,6 +27,73 @@ def test_delete_edge_removes_link_call() -> None:
     assert 'link("node:a", "out", "node:b", "in")' not in updated
     assert 'link("node:a", "out", "node:c", "in")' in updated
 
+def test_delete_edge_removes_rshift_operator() -> None:
+    """Test deletion of >> operator syntax in @links function."""
+    source = textwrap.dedent(
+        """
+        from holon import node, links
+
+        @node(type="trigger.chat", id="node:trigger:chat:main")
+        class TriggerChat:
+            pass
+
+        @node(type="langchain.agent", id="node:agent:assistant")
+        class LangchainAgent:
+            pass
+
+        @links
+        def define_routing():
+            TriggerChat.out >> LangchainAgent.input
+            LangchainAgent.output >> TriggerChat.response
+        """
+    )
+    
+    # Delete first edge
+    updated = delete_edge(
+        source,
+        source_node_id="TriggerChat",
+        source_port="out",
+        target_node_id="LangchainAgent",
+        target_port="input"
+    )
+    
+    assert "TriggerChat.out >> LangchainAgent.input" not in updated
+    assert "LangchainAgent.output >> TriggerChat.response" in updated
+
+def test_delete_edge_removes_uses_call() -> None:
+    """Test deletion of .uses() dependency binding syntax."""
+    source = textwrap.dedent(
+        """
+        from holon import node, links
+
+        @node(type="langchain.agent", id="node:agent:assistant")
+        class AgentNode:
+            pass
+
+        @node(type="llm.model", id="node:llm:gpt4o")
+        class LlmModel:
+            pass
+
+        @links
+        def define_routing():
+            # Dependency binding
+            AgentNode.uses(llm=LlmModel.output)
+            AgentNode.uses(memory=MemoryStore.output)
+        """
+    )
+    
+    # Delete the llm dependency
+    updated = delete_edge(
+        source,
+        source_node_id="LlmModel",
+        source_port="output",
+        target_node_id="AgentNode",
+        target_port="llm"
+    )
+    
+    assert "AgentNode.uses(llm=LlmModel.output)" not in updated
+    assert "AgentNode.uses(memory=MemoryStore.output)" in updated
+
 def test_delete_edge_removes_port_map_class() -> None:
     source = textwrap.dedent(
         """

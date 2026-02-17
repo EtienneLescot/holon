@@ -139,8 +139,8 @@ function pickLinksFunction(graph: CoreGraph | undefined): string | undefined {
   if (!graph) {
     return undefined;
   }
-  // Use the links function name from graph metadata
-  return graph.linksFunctionName ?? undefined;
+  // Use the links function name from graph metadata (handle both camelCase and snake_case)
+  return graph.linksFunctionName ?? graph.links_function_name ?? undefined;
 }
 
 class BrowserDevBridge {
@@ -214,7 +214,7 @@ class BrowserDevBridge {
       type: this.hasSentInit ? "graph.update" : "graph.init", 
       nodes, 
       edges, 
-      linksFunctionName: res.graph.linksFunctionName ?? null,
+      linksFunctionName: res.graph.linksFunctionName ?? res.graph.links_function_name ?? null,
       reason 
     });
     this.hasSentInit = true;
@@ -483,6 +483,24 @@ class BrowserDevBridge {
       });
 
       await this.parseAndSend("ui.edgeCreated");
+      return;
+    }
+
+    if (msg.type === "ui.edgeDeleted") {
+      // Edge data now contains original class names and port names (no mapping needed)
+      await fetchJson<{ source: string }>("/api/delete_link", {
+        method: "POST",
+        body: JSON.stringify({
+          source_node_id: msg.edge.source,  // Already a class name from edge.data
+          source_port: msg.edge.sourcePort ?? "output",
+          target_node_id: msg.edge.target,  // Already a class name from edge.data
+          target_port: msg.edge.targetPort ?? "input",
+        }),
+      }).then((r) => {
+        this.source = r.source;
+      });
+
+      await this.parseAndSend("ui.edgeDeleted");
       return;
     }
 

@@ -1035,6 +1035,16 @@ class _DeleteEdgeTransformer(cst.CSTTransformer):
                     if self._check_link_args(call):
                         self.deleted_any = True
                         return cst.RemoveFromParent()
+                # Check for .uses() method call: TargetClass.uses(port=SourceClass.output)
+                if self._matches_uses_call(call):
+                    self.deleted_any = True
+                    return cst.RemoveFromParent()
+            # Check for >> operator: SourceClass.port >> TargetClass.port
+            if isinstance(expr, cst.Expr) and isinstance(expr.value, cst.BinaryOperation):
+                if isinstance(expr.value.operator, cst.RightShift):
+                    if self._matches_rshift_link(expr.value):
+                        self.deleted_any = True
+                        return cst.RemoveFromParent()
         return updated_node
 
     def leave_ClassDef(
@@ -1123,6 +1133,118 @@ class _DeleteEdgeTransformer(cst.CSTTransformer):
         if isinstance(node_expr, cst.Name):
             # If node_id is "node:ChatNode" and class is ChatNode, match.
             if node_id.startswith("node:") and node_id[5:] == node_expr.value:
+                return True
+        
+        return False
+
+    def _matches_rshift_link(self, binop: cst.BinaryOperation) -> bool:
+        """Check if a >> binary operation matches the edge we want to delete.
+        
+        Expects: SourceClass.source_port >> TargetClass.target_port
+        """
+        # Extract source (left side)
+        if not isinstance(binop.left, cst.Attribute):
+            return False
+        if not isinstance(binop.left.value, cst.Name):
+            return False
+        source_class = binop.left.value.value
+        source_port = binop.left.attr.value
+        
+        # Extract target (right side)
+        if not isinstance(binop.right, cst.Attribute):
+            return False
+        if not isinstance(binop.right.value, cst.Name):
+            return False
+        target_class = binop.right.value.value
+        target_port = binop.right.attr.value
+        
+        # Match against desired edge
+        # source_node_id might be a class name like "TriggerChat" or a full ID
+        source_matches = (
+            self.source_node_id == source_class or
+            (self.source_node_id.startswith("node:") and self.source_node_id.split(":")[-1] == source_class) or
+            source_class == self.source_node_id
+        )
+        
+        target_matches = (
+            self.target_node_id == target_class or
+            (self.target_node_id.startswith("node:") and self.target_node_id.split(":")[-1] == target_class) or
+            target_class == self.target_node_id
+        )
+        
+        port_matches = (
+            (self.source_port is None or source_port == self.source_port) and
+            (self.target_port is None or target_port == self.target_port)
+        )
+        
+        return source_matches and target_matches and port_matches
+
+    def _matches_uses_call(self, call: cst.Call) -> bool:
+        """Check if a .uses() method call matches the edge we want to delete.
+        
+        Expects: TargetClass.uses(target_port=SourceClass.source_port)
+        Example: AgentNode.uses(llm=LlmModel.output)
+        """
+        # Check if this is a .uses() method call
+        if not isinstance(call.func, cst.Attribute):
+            return False
+        if not isinstance(call.func.attr, cst.Name):
+            return False
+        if call.func.attr.value != "uses":
+            return False
+        
+        # Extract target class (the object calling .uses())
+        if not isinstance(call.func.value, cst.Name):
+            return False
+        target_class = call.func.value.value
+        
+        # Check if target matches
+        target_matches = (
+            self.target_node_id == target_class or
+            (self.target_node_id.startswith("node:") and self.target_node_id.split(":")[-1] == target_class) or
+            target_class == self.target_node_id
+        )
+        
+        if not target_matches:
+            return False
+        
+        # Look through keyword arguments to find matching source/port
+        for arg in call.args:
+            # Must be a keyword argument (e.g., llm=LlmModel.output)
+            if not arg.keyword:
+                continue
+            
+            # Extract target port name
+            if not isinstance(arg.keyword, cst.Name):
+                continue
+            target_port = arg.keyword.value
+            
+            # Check if target port matches
+            if self.target_port and target_port != self.target_port:
+                continue
+            
+            # Extract source class and port from the argument value
+            # Should be SourceClass.source_port
+            if not isinstance(arg.value, cst.Attribute):
+                continue
+            if not isinstance(arg.value.value, cst.Name):
+                continue
+            if not isinstance(arg.value.attr, cst.Name):
+                continue
+            
+            source_class = arg.value.value.value
+            source_port = arg.value.attr.value
+            
+            # Check if source matches
+            source_matches = (
+                self.source_node_id == source_class or
+                (self.source_node_id.startswith("node:") and self.source_node_id.split(":")[-1] == source_class) or
+                source_class == self.source_node_id
+            )
+            
+            port_matches = (self.source_port is None or source_port == self.source_port)
+            
+            if source_matches and port_matches:
                 return True
         
         return False

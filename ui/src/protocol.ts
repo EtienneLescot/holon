@@ -34,6 +34,7 @@ export const CoreNodeSchema = z.object({
   position: PositionSchema.nullable().optional(),
   label: z.string().nullable().optional(),
   nodeType: z.string().nullable().optional(),
+  node_type: z.string().nullable().optional(),  // Backend sends snake_case
   props: z.record(z.unknown()).nullable().optional(),
   summary: z.string().nullable().optional(),
   badges: z.array(z.string()).nullable().optional(),
@@ -47,6 +48,8 @@ export const CoreEdgeSchema = z.object({
   target: z.string(),
   sourcePort: z.string().nullable().optional(),
   targetPort: z.string().nullable().optional(),
+  source_port: z.string().nullable().optional(),  // Backend sends snake_case
+  target_port: z.string().nullable().optional(),  // Backend sends snake_case
   kind: z.union([z.literal("code"), z.literal("link")]).nullable().optional(),
 });
 
@@ -56,6 +59,7 @@ export const CoreGraphSchema = z.object({
   nodes: z.array(CoreNodeSchema),
   edges: z.array(CoreEdgeSchema),
   linksFunctionName: z.string().nullable().optional(),
+  links_function_name: z.string().nullable().optional(),  // Backend sends snake_case
 });
 
 export type CoreGraph = z.infer<typeof CoreGraphSchema>;

@@ -25,6 +25,7 @@ export default function EdgeWithDelete({
     target,
     sourceHandleId,
     targetHandleId,
+    data,
 }: EdgeProps) {
     const targetInternalNode = useStore((state: any) => state.nodeInternals?.get?.(target));
 
@@ -74,13 +75,18 @@ export default function EdgeWithDelete({
 
     const onEdgeDelete = () => {
         // Send delete message directly (no confirmation dialog per user request)
+        // Use data from edge.data which contains original class names and port names
+        const edgeData = data || {};
+        
         postToHost({
             type: "ui.edgeDeleted",
             edge: {
-                source,
-                target,
-                sourcePort: sourceHandleId || null,
-                targetPort: targetHandleId || null,
+                // Use original class names from data, not React Flow node IDs
+                source: edgeData.source || source,
+                target: edgeData.target || target,
+                // Use original port names from data
+                sourcePort: edgeData.sourcePort || sourceHandleId || null,
+                targetPort: edgeData.targetPort || targetHandleId || null,
             }
         });
     };

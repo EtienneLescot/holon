@@ -42,25 +42,17 @@ export function prepareUiGraph(
     } as UiNode;
   });
 
-  // Create mapping from class name to node ID for edge resolution
-  // (Python parser returns class names in edges, not node IDs)
-  const nodeNameToId = new Map<string, string>();
-  (graph.nodes || []).forEach((n: any) => {
-    nodeNameToId.set(n.name, n.id);
-  });
-
+  // Keep original class names in edges - mapping to node IDs happens in App.tsx
+  // (Python parser returns class names in edges, which need to be preserved for deletion)
   const edges: UiEdge[] = (graph.edges || []).map((e: any) => {
     const sourcePort = e.sourcePort ?? e.source_port ?? "output";
     const targetPort = e.targetPort ?? e.target_port ?? "input";
     const kind = e.kind ?? "code";
 
-    // Map class names to node IDs
-    const sourceId = nodeNameToId.get(e.source) ?? e.source;
-    const targetId = nodeNameToId.get(e.target) ?? e.target;
-
+    // Keep class names as-is (App.tsx will map to node IDs for React Flow)
     return {
-      source: sourceId,
-      target: targetId,
+      source: e.source,  // Class name, e.g., "ChatTrigger"
+      target: e.target,  // Class name, e.g., "LangchainAgent"
       sourcePort,
       targetPort,
       kind,
