@@ -130,16 +130,25 @@ def main(argv: list[str] | None = None) -> None:
 
 def _make_handler(state: _State) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
+        # Use HTTP/1.1 so the connection stays open during long-running requests
+        protocol_version = "HTTP/1.1"
+
         def _send_json(self, status: int, payload: Any) -> None:
             body = json.dumps(payload, ensure_ascii=False).encode("utf8")
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.send_header("Access-Control-Allow-Headers", "content-type")
-            self.send_header("Access-Control-Allow-Methods", "GET,POST,PUT,OPTIONS")
-            self.end_headers()
-            self.wfile.write(body)
+            try:
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Connection", "close")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Access-Control-Allow-Headers", "content-type")
+                self.send_header("Access-Control-Allow-Methods", "GET,POST,PUT,OPTIONS")
+                self.end_headers()
+                self.wfile.write(body)
+                self.wfile.flush()
+            except BrokenPipeError:
+                sys.stderr.write("[API] Client disconnected before response was sent (BrokenPipeError)\n")
+                sys.stderr.flush()
 
         def _read_json(self) -> dict[str, Any]:
             length = int(self.headers.get("Content-Length", "0") or "0")

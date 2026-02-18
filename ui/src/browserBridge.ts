@@ -294,7 +294,11 @@ class BrowserDevBridge {
               : trace.status === "error" ? (trace.error ?? "Error")
               : "Done";
             postToUi({ type: "ai.status", nodeId: trace.node_id, status: nodeStatus, message });
-            executionOutput[trace.node_id] = { status: trace.status, error: trace.error };
+            executionOutput[trace.node_id] = {
+              status: trace.status,
+              error: trace.error ?? null,
+              output: (trace as any).output ?? null,
+            };
           }
         }
 

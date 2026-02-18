@@ -381,9 +381,18 @@ export function ConfigPanel(props: Props): JSX.Element {
                               </div>
                             </div>
                           ) : (
-                            <pre className="text-[12px] leading-6 text-blue-100/80 font-mono h-full overflow-auto custom-scrollbar">
-                              {prettyJson(props.executionOutput[props.node.id])}
-                            </pre>
+                            <div className="space-y-4">
+                              {props.executionOutput[props.node.id].output != null && (
+                                <div className="space-y-2">
+                                  <div className="text-[9px] font-black uppercase tracking-[0.3em] text-white/20">Output</div>
+                                  <pre className="text-[12px] leading-6 text-emerald-200/80 font-mono overflow-auto custom-scrollbar max-h-[60vh] whitespace-pre-wrap break-all">
+                                    {typeof props.executionOutput[props.node.id].output === "string"
+                                      ? props.executionOutput[props.node.id].output
+                                      : prettyJson(props.executionOutput[props.node.id].output)}
+                                  </pre>
+                                </div>
+                              )}
+                            </div>
                           )}
                         </div>
                       ) : (
