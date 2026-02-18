@@ -2,6 +2,7 @@ from typing import Any, List, Optional
 from holon import node
 from typing import cast
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool
 
@@ -46,18 +47,18 @@ async def langchain_agent(
         except Exception:
             pass  # Parser missing get_format_instructions — skip gracefully
 
-    # For now, use a simple chain without tools (modern LangChain API)
-    # This avoids deprecated initialize_agent and create_openai_functions_agent
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", effective_system_prompt),
-        ("human", "{input}"),
-    ])
-    
-    # Create a simple chain: prompt | llm
-    chain = prompt | llm
-    
+    # Build messages directly to avoid ChatPromptTemplate treating curly braces
+    # in system_prompt / format_instructions as template variables.
+    messages = [
+        SystemMessage(content=effective_system_prompt),
+        HumanMessage(content=final_input),
+    ]
+
+    # Create a simple chain: messages | llm
+    chain = llm
+
     # Invoke the chain (async to support async API key retrieval)
-    response = await chain.ainvoke({"input": final_input})
+    response = await chain.ainvoke(messages)
     
     # Extract text content
     if hasattr(response, "content"):

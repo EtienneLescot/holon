@@ -94,13 +94,27 @@ def resolve_code_python(props: dict[str, Any]) -> Any:
             if mod_name in _import_map:
                 safe_builtins[mod_name] = _import_map[mod_name]
 
+        # ---- Restricted __import__ for whitelisted modules ----
+        def _safe_import(name: str, *args: Any, **kwargs: Any) -> Any:
+            if name in _import_map:
+                return _import_map[name]
+            raise ImportError(
+                f"Import of '{name}' is not allowed in code.python sandbox. "
+                f"Allowed: {list(_import_map)}"
+            )
+
+        safe_builtins["__import__"] = _safe_import
+
         # ---- Wrap user code so ``return`` works at top level ----
         indented = "\n".join(f"    {line}" for line in code_str.split("\n"))
         wrapped = f"def __holon_code__():\n{indented}\n\n__holon_result__ = __holon_code__()\n"
 
         # ---- Execute ----
-        safe_globals: dict[str, Any] = {"__builtins__": safe_builtins}
-        local_ns: dict[str, Any] = {"data": data}
+        # `data` must live in safe_globals so it's visible as a free variable
+        # inside the nested __holon_code__ function (exec locals don't reach
+        # into inner function scopes).
+        safe_globals: dict[str, Any] = {"__builtins__": safe_builtins, "data": data}
+        local_ns: dict[str, Any] = {}
 
         try:
             exec(wrapped, safe_globals, local_ns)  # noqa: S102
@@ -109,7 +123,8 @@ def resolve_code_python(props: dict[str, Any]) -> Any:
             sys.stderr.flush()
             raise
 
-        result = local_ns.get("__holon_result__")
+        result = local_ns.get("__holon_result__") if "__holon_result__" in local_ns \
+            else safe_globals.get("__holon_result__")
         sys.stderr.write(f"[CODE] Execution OK, result type={type(result).__name__}\n")
         sys.stderr.flush()
         return result

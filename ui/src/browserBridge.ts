@@ -263,11 +263,16 @@ class BrowserDevBridge {
     }
 
     if (msg.type === "ui.chat.sendMessage") {
+      // Mark the trigger node as running immediately
+      postToUi({ type: "ai.status", nodeId: msg.nodeId, status: "working", message: "Running…" });
+
       try {
         const r = await fetchJson<{
           success: boolean;
           response?: unknown;
           error?: string;
+          error_node_id?: string;
+          execution_trace?: Array<{ node_id: string; status: string; error?: string }>;
         }>("/api/trigger", {
           method: "POST",
           body: JSON.stringify({
@@ -277,6 +282,37 @@ class BrowserDevBridge {
           }),
         });
 
+        // Emit per-node status from the execution trace
+        const executionOutput: Record<string, unknown> = {};
+        if (r.execution_trace) {
+          for (const trace of r.execution_trace) {
+            const nodeStatus = trace.status === "success" ? "done"
+              : trace.status === "skipped" ? "done"
+              : trace.status === "error" ? "error"
+              : "done";
+            const message = trace.status === "skipped" ? "Skipped" 
+              : trace.status === "error" ? (trace.error ?? "Error")
+              : "Done";
+            postToUi({ type: "ai.status", nodeId: trace.node_id, status: nodeStatus, message });
+            executionOutput[trace.node_id] = { status: trace.status, error: trace.error };
+          }
+        }
+
+        // Mark trigger node done/error
+        if (r.success) {
+          postToUi({ type: "ai.status", nodeId: msg.nodeId, status: "done", message: "Done" });
+          executionOutput[msg.nodeId] = { status: "success" };
+        } else {
+          postToUi({ type: "ai.status", nodeId: msg.nodeId, status: "error", message: r.error ?? "Failed" });
+          if (r.error_node_id) {
+            executionOutput[r.error_node_id] = { status: "error", error: r.error };
+          }
+        }
+
+        // Push to execution output store so node colours update
+        postToUi({ type: "execution.output", output: executionOutput });
+
+        // Deliver the response message to chat
         if (r.success && r.response) {
           postToUi({
             type: "chat.messageReceived",
@@ -301,6 +337,7 @@ class BrowserDevBridge {
         });
       } catch (err: unknown) {
         const details = err instanceof Error ? err.message : String(err);
+        postToUi({ type: "ai.status", nodeId: msg.nodeId, status: "error", message: details });
         postToUi({
           type: "chat.event",
           nodeId: msg.nodeId,

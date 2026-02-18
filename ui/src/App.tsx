@@ -233,7 +233,9 @@ function HolonNode(props: NodeProps<UiNodeData>): JSX.Element {
   const nodeClasses = [
     'holonNode',
     selected ? 'holonNode-selected' : '',
-    data.hasError ? 'holonNode-error' : ''
+    data.hasError ? 'holonNode-error' : '',
+    (!data.hasError && data.aiStatus?.status === 'working') ? 'holonNode-running' : '',
+    (!data.hasError && data.aiStatus?.status === 'done') ? 'holonNode-done' : '',
   ].filter(Boolean).join(' ');
 
   return (

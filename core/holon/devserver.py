@@ -409,7 +409,12 @@ def _make_handler(state: _State) -> type[BaseHTTPRequestHandler]:
                     if not result.success:
                         response["error"] = str(result.error)
                         response["error_type"] = type(result.error).__name__
-                    
+                        if result.error_node_id:
+                            response["error_node_id"] = result.error_node_id
+
+                    if result.execution_trace:
+                        response["execution_trace"] = result.execution_trace
+
                     # Extract response from trigger response port
                     if result.success and result.response_data:
                         # Get the response for this specific trigger node

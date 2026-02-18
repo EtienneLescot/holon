@@ -201,6 +201,20 @@ body {
   animation: pulseError 2s ease-in-out infinite;
 }
 
+.holonNode-running {
+  box-shadow: 0 0 0 2px rgba(99, 179, 237, 0.9), 0 0 20px rgba(99, 179, 237, 0.4);
+  animation: pulseRunning 1.2s ease-in-out infinite;
+}
+
+.holonNode-done {
+  box-shadow: 0 0 0 2px rgba(52, 211, 153, 0.85), 0 0 18px rgba(52, 211, 153, 0.35);
+}
+
+@keyframes pulseRunning {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(99, 179, 237, 0.9), 0 0 16px rgba(99, 179, 237, 0.3); }
+  50%       { box-shadow: 0 0 0 2px rgba(99, 179, 237, 1),   0 0 28px rgba(99, 179, 237, 0.6); }
+}
+
 @keyframes pulseError {
 
   0%,

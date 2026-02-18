@@ -91,6 +91,7 @@ def resolve_langchain_agent(props: dict[str, Any]) -> Any:
         llm: Any = None,
         tools: list[Any] | None = None,
         memory: Any = None,
+        output_parser: Any = None,
     ) -> str:
         """Execute the agent with given inputs."""
         from holon.library.langchain import langchain_agent
@@ -102,6 +103,7 @@ def resolve_langchain_agent(props: dict[str, Any]) -> Any:
             user_prompt=config.user_prompt,
             tools=tools or [],
             memory=memory,
+            output_parser=output_parser,
         )
     
     # Attach config for inspection
