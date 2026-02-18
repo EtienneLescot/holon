@@ -8,8 +8,8 @@ Demonstrates the four new node types:
 
 Graph topology (simplified):
 
-  [manual_trigger]
-        │ input
+  [chat_trigger]
+        │ out
         ▼
   [detect_lang]   ← llm (gpt-4o-mini)
         │ output (raw text "fr" / "en" / …)
@@ -36,9 +36,12 @@ from holon.dsl import node, links, workflow
 # Trigger
 # ---------------------------------------------------------------------------
 
-@node(type="trigger.manual", id="manual_trigger")
-class ManualTrigger:
-    """Start node — receives the user's research question."""
+@node(type="trigger.chat", id="chat_trigger")
+class ChatTrigger:
+    """Chat trigger — the user types a research question; the answer is streamed back."""
+    placeholder = "Ask a research question…"
+    max_history = 50
+    allow_markdown = True
 
 
 # ---------------------------------------------------------------------------
@@ -167,7 +170,7 @@ class PostResult:
 @links
 def research_pipeline_links():
     # trigger → language detector
-    ManualTrigger.output >> DetectLang.input
+    ChatTrigger.out      >> DetectLang.input
     MiniLLM.output       >> DetectLang.llm
 
     # detector → switch
@@ -188,8 +191,9 @@ def research_pipeline_links():
     FrAgent.output >> EnrichJson.input
     EnAgent.output >> EnrichJson.input
 
-    # enriched result → webhook
-    EnrichJson.output >> PostResult.input
+    # enriched result → webhook, then reply to chat
+    EnrichJson.output    >> PostResult.input
+    PostResult.output    >> ChatTrigger.response
 
 
 @workflow

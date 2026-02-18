@@ -181,6 +181,7 @@ function HolonNode(props: NodeProps<UiNodeData>): JSX.Element {
   // Check if this is a trigger node
   const isTrigger = data.nodeType?.startsWith("trigger.");
   const isProviderNode = data.connectionRole === "provider";
+  const isSwitch = data.nodeType === "logic.switch";
 
   // If this is a ui.chat or trigger.chat node, render ChatNode component
   if (data.nodeType === "ui.chat" || data.nodeType === "trigger.chat") {
@@ -201,8 +202,30 @@ function HolonNode(props: NodeProps<UiNodeData>): JSX.Element {
   // Response ports are special - they go to bottom-left for triggers
   const responsePorts = data.ports.filter((p) => p.kind === "response");
 
+  // For Switch nodes: derive active branch ports from the actual rules in props.
+  // rules array determines numbered outputs (out_0..out_N-1) + always one fallback.
+  const switchActivePortIds: Set<string> | null = isSwitch
+    ? (() => {
+        const rules: unknown[] = Array.isArray(data.props?.rules) ? data.props.rules : [];
+        const ids = new Set<string>();
+        rules.forEach((r: any, i: number) => ids.add(r?.output ?? `out_${i}`));
+        ids.add(data.props?.fallback ?? "out_fallback");
+        return ids;
+      })()
+    : null;
+
+  const switchBranchPorts = isSwitch
+    ? data.ports.filter((p) => p.direction === "output" && switchActivePortIds!.has(p.id))
+    : [];
+
+  // Height: give each branch row 30px so the node body grows with the port count.
+  const switchMinHeight = isSwitch && switchBranchPorts.length > 0
+    ? Math.max(60, switchBranchPorts.length * 30)
+    : undefined;
+
   const configPorts = data.ports.filter((p) =>
-    p !== flowInput && p !== flowOutput && p.kind !== "response"
+    p !== flowInput && p !== flowOutput && p.kind !== "response" &&
+    !(isSwitch && p.direction === "output")
   );
   const topConfigPorts = isProviderNode ? configPorts : [];
   const bottomConfigPorts = isProviderNode ? [] : configPorts;
@@ -215,7 +238,7 @@ function HolonNode(props: NodeProps<UiNodeData>): JSX.Element {
 
   return (
     <div className={nodeClasses}>
-      <div className="holonNodeInner">
+      <div className="holonNodeInner" style={switchMinHeight ? { minHeight: switchMinHeight } : undefined}>
         {/* Main Flow Input (Left Center) */}
         {flowInput && (
           <div style={{ position: 'absolute', left: '-6px', top: '50%', transform: 'translateY(-50%)', zIndex: 10 }}>
@@ -231,8 +254,8 @@ function HolonNode(props: NodeProps<UiNodeData>): JSX.Element {
           </div>
         )}
 
-        {/* Main Flow Output (Right Center) */}
-        {flowOutput && (
+        {/* Main Flow Output (Right Center) — hidden on Switch (branch ports take over) */}
+        {flowOutput && !isSwitch && (
           <div style={{ position: 'absolute', right: '-6px', top: '50%', transform: 'translateY(-50%)', zIndex: 10 }}>
             <Handle
               type="source"
@@ -243,6 +266,45 @@ function HolonNode(props: NodeProps<UiNodeData>): JSX.Element {
             <div className="group hidden hover:block">
               <PortTooltip port={flowOutput} />
             </div>
+          </div>
+        )}
+
+        {/* Switch Branch Ports — spread vertically on the right side */}
+        {isSwitch && switchBranchPorts.length > 0 && (
+          <div style={{
+            position: 'absolute',
+            right: '-6px',
+            top: 0,
+            bottom: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-around',
+            zIndex: 10,
+          }}>
+            {switchBranchPorts.map((p) => (
+              <div key={p.id} style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '4px' }} className="group">
+                <div style={{
+                  fontSize: '8px',
+                  textTransform: 'uppercase',
+                  color: 'rgba(255,255,255,0.45)',
+                  whiteSpace: 'nowrap',
+                  marginRight: '2px',
+                  textAlign: 'right',
+                }}>
+                  {p.label || p.id}
+                </div>
+                <Handle
+                  type="source"
+                  position={HandlePosition.Right}
+                  id={p.id}
+                  className={`holonHandle holonHandle-${p.kind ?? "data"}`}
+                  style={{ position: 'relative', transform: 'none', top: 0 }}
+                />
+                <div style={{ opacity: 0, transition: 'opacity 0.2s', position: 'absolute', right: '16px', pointerEvents: 'none' }} className="group-hover:opacity-100">
+                  <PortTooltip port={p} />
+                </div>
+              </div>
+            ))}
           </div>
         )}
 
