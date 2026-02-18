@@ -766,77 +766,52 @@ export default function App(): JSX.Element {
     };
   }, [nodes, selectedNodeId]);
 
-  // Auto-adjust viewport when a node is selected to prevent it from being hidden by the ConfigPanel
-  // This runs ONLY when selectedNodeId changes (opening the panel), not when nodes are moved
+  // Auto-adjust viewport when a node is selected to prevent it from being hidden by the ConfigPanel.
+  // The layout is flex: canvas (flex:1) + ConfigPanel (0→500px). When the panel opens, the canvas
+  // shrinks. We calculate based on the FINAL canvas width to shift the viewport immediately.
   useEffect(() => {
     if (!selectedNodeId || !reactFlowInstance) {
-      // Reset the tracking when no node is selected
       lastAdjustedNodeIdRef.current = null;
       return;
     }
     
-    // Don't re-adjust if we just adjusted this same node
     if (lastAdjustedNodeIdRef.current === selectedNodeId) {
       return;
     }
     
-    // Small delay to ensure the panel opening animation doesn't interfere with calculations
+    // Small delay for DOM to settle after click
     const timeoutId = setTimeout(() => {
-      const CONFIG_PANEL_WIDTH = 500; // Width of the ConfigPanel in pixels
-      const DESIRED_MARGIN = 20; // Margin we want between node and panel
+      const CONFIG_PANEL_WIDTH = 500;
+      const MARGIN = 20;
       
-      // Get the container
-      const container = document.querySelector('.react-flow__viewport') as HTMLElement;
-      const wrapper = document.querySelector('.react-flow') as HTMLElement;
-      if (!container || !wrapper) return;
+      // holonMainSplit is the flex parent — its width doesn't change when the panel opens
+      const mainSplit = document.querySelector('.holonMainSplit') as HTMLElement;
+      const canvas = document.querySelector('.canvas') as HTMLElement;
+      if (!mainSplit || !canvas) return;
       
-      // Get the actual node element from the DOM
       const nodeElement = document.querySelector(`[data-id="${selectedNodeId}"]`) as HTMLElement;
       if (!nodeElement) return;
       
-      const wrapperRect = wrapper.getBoundingClientRect();
       const nodeRect = nodeElement.getBoundingClientRect();
+      const canvasRect = canvas.getBoundingClientRect();
       
-      // Calculate node's right edge position relative to the wrapper
-      const nodeRightInWrapper = nodeRect.right - wrapperRect.left;
+      // The canvas will shrink to this width once the panel transition finishes
+      const finalCanvasWidth = mainSplit.clientWidth - CONFIG_PANEL_WIDTH;
       
-      // Where the visible area ends (accounting for the panel)
-      const visibleRight = wrapperRect.width - CONFIG_PANEL_WIDTH - DESIRED_MARGIN;
+      // Node's right edge relative to canvas left edge (canvas left stays fixed in flex)
+      const nodeRightInCanvas = nodeRect.right - canvasRect.left;
       
-      // How much the node overflows
-      const overflow = nodeRightInWrapper - visibleRight;
+      // How much the node will overflow the final canvas
+      const overflow = nodeRightInCanvas - finalCanvasWidth + MARGIN;
       
-      // Get current viewport
-      const { x: viewportX, y: viewportY, zoom } = reactFlowInstance.getViewport();
-      
-      // Debug logging
-      console.log('[Viewport Adjustment]', {
-        nodeRightInWrapper,
-        visibleRight,
-        overflow,
-        wrapperWidth: wrapperRect.width,
-        nodeRectRight: nodeRect.right,
-        wrapperRectLeft: wrapperRect.left,
-        zoom,
-        viewportX
-      });
-      
-      // Only shift if there's overflow
       if (overflow > 0) {
-        // Shift viewport by the overflow amount
+        const { x, y, zoom } = reactFlowInstance.getViewport();
         reactFlowInstance.setViewport(
-          {
-            x: viewportX - overflow,
-            y: viewportY,
-            zoom: zoom,
-          },
+          { x: x - overflow, y, zoom },
           { duration: 300 }
         );
-        
-        // Remember that we adjusted this node
         lastAdjustedNodeIdRef.current = selectedNodeId;
       } else {
-        // Node doesn't need adjustment, but track it
         lastAdjustedNodeIdRef.current = selectedNodeId;
       }
     }, 100); // Slightly longer delay to ensure DOM is settled
