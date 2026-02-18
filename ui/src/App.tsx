@@ -779,10 +779,9 @@ export default function App(): JSX.Element {
       return;
     }
     
-    // Small delay for DOM to settle after click
     const timeoutId = setTimeout(() => {
       const CONFIG_PANEL_WIDTH = 500;
-      const MARGIN = 20;
+      const MARGIN = 100;
       
       // holonMainSplit is the flex parent — its width doesn't change when the panel opens
       const mainSplit = document.querySelector('.holonMainSplit') as HTMLElement;
@@ -814,7 +813,7 @@ export default function App(): JSX.Element {
       } else {
         lastAdjustedNodeIdRef.current = selectedNodeId;
       }
-    }, 100); // Slightly longer delay to ensure DOM is settled
+    }, 0);
     
     return () => clearTimeout(timeoutId);
   }, [selectedNodeId, reactFlowInstance]); // Only react to selectedNodeId changes, not nodes
