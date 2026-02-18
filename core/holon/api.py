@@ -9,6 +9,10 @@ from holon.registry import get_global_registry
 # Import modules to register their resolvers
 import holon.library.langchain_registry  # noqa: F401
 import holon.library.ui_nodes  # noqa: F401
+import holon.library.logic_nodes  # noqa: F401
+import holon.library.parser_nodes  # noqa: F401
+import holon.library.code_nodes  # noqa: F401
+import holon.library.http_nodes  # noqa: F401
 
 
 def get_available_node_types() -> list[dict[str, Any]]:
@@ -90,6 +94,57 @@ def get_available_node_types() -> list[dict[str, Any]]:
                 "show_timestamps": True,
                 "allow_markdown": True,
                 "theme": "default",
+            },
+        },
+        # ---- New nodes --------------------------------------------------------
+        "logic.switch": {
+            "label": "Switch",
+            "category": "Logic",
+            "description": "Route data to one branch based on conditional rules",
+            "defaultProps": {
+                "input_expression": "{{ value }}",
+                "rules": [
+                    {"operator": "equals", "value": "", "output": "out_0"},
+                ],
+                "fallback": "out_fallback",
+            },
+        },
+        "parser.structured": {
+            "label": "Structured Output Parser",
+            "category": "Parsers",
+            "description": "Parse LLM output into structured JSON using a schema",
+            "defaultProps": {
+                "schema": {
+                    "type": "object",
+                    "properties": {"result": {"type": "string"}},
+                    "required": ["result"],
+                },
+                "auto_fix": True,
+            },
+            "connectionRole": "provider",
+        },
+        "code.python": {
+            "label": "Python Code",
+            "category": "Code",
+            "description": "Execute custom Python code in a sandboxed environment",
+            "defaultProps": {
+                "code": "# data is the incoming payload\nreturn data",
+                "timeout": 30,
+            },
+        },
+        "http.request": {
+            "label": "HTTP Request",
+            "category": "Network",
+            "description": "Make HTTP requests to external APIs",
+            "defaultProps": {
+                "method": "GET",
+                "url": "https://api.example.com/endpoint",
+                "headers": {},
+                "query_params": {},
+                "timeout": 30,
+                "retry_count": 0,
+                "ignore_errors": False,
+                "response_type": "json",
             },
         },
     }

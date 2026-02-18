@@ -26,6 +26,7 @@ export const SPEC_TYPE_REGISTRY: Record<string, SpecTypeRegistryEntry> = {
       { id: "llm", direction: "input", kind: "llm", label: "LLM" },
       { id: "memory", direction: "input", kind: "memory", label: "Memory" },
       { id: "tools", direction: "input", kind: "tool", label: "Tools", multi: true },
+      { id: "parser", direction: "input", kind: "parser", label: "Structured Output" },
       { id: "output", direction: "output", kind: "data", label: "Output" },
     ],
   },
@@ -37,6 +38,7 @@ export const SPEC_TYPE_REGISTRY: Record<string, SpecTypeRegistryEntry> = {
       { id: "llm", direction: "input", kind: "llm", label: "LLM" },
       { id: "memory", direction: "input", kind: "memory", label: "Memory" },
       { id: "tools", direction: "input", kind: "tool", label: "Tools", multi: true },
+      { id: "parser", direction: "input", kind: "parser", label: "Structured Output" },
       { id: "output", direction: "output", kind: "data", label: "Output" },
     ],
   },
@@ -73,6 +75,42 @@ export const SPEC_TYPE_REGISTRY: Record<string, SpecTypeRegistryEntry> = {
   "parser.json": {
     type: "parser.json",
     ports: [{ id: "parser", direction: "output", kind: "parser", label: "parser" }],
+  },
+  "parser.structured": {
+    type: "parser.structured",
+    ports: [{ id: "output", direction: "output", kind: "parser", label: "Structured Output" }],
+    connectionRole: "provider",
+  },
+  "logic.switch": {
+    type: "logic.switch",
+    ports: [
+      { id: "input", direction: "input", kind: "data", label: "Input" },
+      { id: "out_0", direction: "output", kind: "data", label: "Branch 0" },
+      { id: "out_1", direction: "output", kind: "data", label: "Branch 1" },
+      { id: "out_2", direction: "output", kind: "data", label: "Branch 2" },
+      { id: "out_3", direction: "output", kind: "data", label: "Branch 3" },
+      { id: "out_4", direction: "output", kind: "data", label: "Branch 4" },
+      { id: "out_5", direction: "output", kind: "data", label: "Branch 5" },
+      { id: "out_6", direction: "output", kind: "data", label: "Branch 6" },
+      { id: "out_7", direction: "output", kind: "data", label: "Branch 7" },
+      { id: "out_8", direction: "output", kind: "data", label: "Branch 8" },
+      { id: "out_9", direction: "output", kind: "data", label: "Branch 9" },
+      { id: "out_fallback", direction: "output", kind: "data", label: "Fallback" },
+    ],
+  },
+  "code.python": {
+    type: "code.python",
+    ports: [
+      { id: "input", direction: "input", kind: "data", label: "Input" },
+      { id: "output", direction: "output", kind: "data", label: "Output" },
+    ],
+  },
+  "http.request": {
+    type: "http.request",
+    ports: [
+      { id: "input", direction: "input", kind: "data", label: "Input" },
+      { id: "output", direction: "output", kind: "data", label: "Output" },
+    ],
   },
   "trigger.manual": {
     type: "trigger.manual",

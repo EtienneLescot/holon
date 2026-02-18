@@ -49,5 +49,153 @@
         "options": ["default", "minimal", "compact"]
       }
     }
+  },
+  "logic.switch": {
+    "label": "Switch",
+    "category": "Logic",
+    "description": "Route data to one branch based on conditional rules (max 10 branches + fallback)",
+    "icon": "🔀",
+    "defaultProps": {
+      "input_expression": "{{ value }}",
+      "rules": [
+        {"operator": "equals", "value": "", "output": "out_0"}
+      ],
+      "fallback": "out_fallback"
+    },
+    "configSchema": {
+      "input_expression": {
+        "type": "string",
+        "label": "Input expression",
+        "description": "Template expression to evaluate, e.g. {{ status }} or {{ data.score }}"
+      },
+      "rules": {
+        "type": "array",
+        "label": "Rules",
+        "description": "Array of {operator, value, output} objects (max 10)"
+      },
+      "fallback": {
+        "type": "string",
+        "label": "Fallback port",
+        "default": "out_fallback"
+      }
+    }
+  },
+  "parser.structured": {
+    "label": "Structured Output Parser",
+    "category": "Parsers",
+    "description": "Parse LLM output into structured JSON / Pydantic model using a JSON Schema",
+    "icon": "📋",
+    "defaultProps": {
+      "schema": {
+        "type": "object",
+        "properties": {"result": {"type": "string"}},
+        "required": ["result"]
+      },
+      "auto_fix": true
+    },
+    "configSchema": {
+      "schema": {
+        "type": "json",
+        "label": "JSON Schema",
+        "description": "JSON Schema describing the expected output structure"
+      },
+      "auto_fix": {
+        "type": "boolean",
+        "label": "Auto-fix malformed output",
+        "description": "Retry with OutputFixingParser when parsing fails"
+      }
+    }
+  },
+  "code.python": {
+    "label": "Python Code",
+    "category": "Code",
+    "description": "Execute custom Python code in a sandboxed environment; receives `data`, returns a value",
+    "icon": "🐍",
+    "defaultProps": {
+      "code": "# `data` is the incoming payload\nreturn data",
+      "timeout": 30
+    },
+    "configSchema": {
+      "code": {
+        "type": "code",
+        "language": "python",
+        "label": "Python code",
+        "description": "Write Python code; `data` holds the input; use `return` to produce output."
+      },
+      "timeout": {
+        "type": "number",
+        "label": "Timeout (seconds)",
+        "min": 1,
+        "max": 300,
+        "default": 30
+      }
+    }
+  },
+  "http.request": {
+    "label": "HTTP Request",
+    "category": "Network",
+    "description": "Make HTTP requests to external APIs; supports template interpolation in URL, headers, body",
+    "icon": "🌐",
+    "defaultProps": {
+      "method": "GET",
+      "url": "https://api.example.com/endpoint",
+      "headers": {},
+      "query_params": {},
+      "timeout": 30,
+      "retry_count": 0,
+      "ignore_errors": false,
+      "response_type": "json"
+    },
+    "configSchema": {
+      "method": {
+        "type": "select",
+        "label": "HTTP Method",
+        "options": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]
+      },
+      "url": {
+        "type": "string",
+        "label": "URL",
+        "description": "Supports {{ template }} syntax with input data"
+      },
+      "headers": {
+        "type": "json",
+        "label": "Headers",
+        "description": "Key-value pairs; values support {{ template }} syntax"
+      },
+      "query_params": {
+        "type": "json",
+        "label": "Query Parameters"
+      },
+      "body": {
+        "type": "json",
+        "label": "Request Body (POST/PUT/PATCH)"
+      },
+      "auth_type": {
+        "type": "select",
+        "label": "Authentication",
+        "options": ["none", "api_key", "bearer", "basic"]
+      },
+      "timeout": {
+        "type": "number",
+        "label": "Timeout (seconds)",
+        "min": 1,
+        "max": 300
+      },
+      "retry_count": {
+        "type": "number",
+        "label": "Retry count",
+        "min": 0,
+        "max": 5
+      },
+      "ignore_errors": {
+        "type": "boolean",
+        "label": "Ignore HTTP errors"
+      },
+      "response_type": {
+        "type": "select",
+        "label": "Response type",
+        "options": ["json", "text"]
+      }
+    }
   }
 }

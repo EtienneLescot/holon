@@ -160,7 +160,7 @@ class WorkflowRunner:
                 # Graph-based execution - no need for @workflow function
                 sys.stderr.write(f"[RUNNER] Using graph-based execution engine\n")
                 sys.stderr.flush()
-                return await self._run_workflow_with_engine(file_path, workflow_name, source, trigger_data)
+                return await self._run_workflow_with_engine(file_path, workflow_name, source, trigger_data, module=module)
             
             # Legacy mode - need a @workflow function
             sys.stderr.write(f"[RUNNER] Looking for workflow function '{workflow_name}'\n")
@@ -353,7 +353,9 @@ class WorkflowRunner:
         return props
     
     async def _run_workflow_with_engine(
-        self, file_path: Path, workflow_name: str, source: str, trigger_data: dict[str, Any] | None = None
+        self, file_path: Path, workflow_name: str, source: str,
+        trigger_data: dict[str, Any] | None = None,
+        module: Any | None = None,
     ) -> ExecutionResult:
         """Execute workflow using the graph-based execution engine.
         
@@ -380,8 +382,15 @@ class WorkflowRunner:
             sys.stderr.write(f"[RUNNER] Graph parsed: {len(graph.nodes)} nodes, {len(graph.edges)} edges\n")
             sys.stderr.flush()
             
+            # Capture module namespace for inline_code node execution
+            module_namespace: dict[str, Any] = vars(module) if module is not None else {}
+
             # Create execution context with trigger data
-            ctx = ExecutionContext(graph=graph, trigger_data=trigger_data)
+            ctx = ExecutionContext(
+                graph=graph,
+                trigger_data=trigger_data,
+                module_namespace=module_namespace,
+            )
             
             # Create and run execution engine
             engine = ExecutionEngine()

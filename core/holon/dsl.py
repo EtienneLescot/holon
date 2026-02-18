@@ -111,7 +111,7 @@ _STANDARD_PORTS: dict[str, dict[str, list[str]]] = {
         "outputs": ["start"],
     },
     "langchain.agent": {
-        "inputs": ["input", "llm", "memory", "tools"],
+        "inputs": ["input", "llm", "memory", "tools", "parser"],
         "outputs": ["output"],
     },
     "llm.model": {
@@ -124,6 +124,28 @@ _STANDARD_PORTS: dict[str, dict[str, list[str]]] = {
     },
     "memory.buffer": {
         "inputs": [],
+        "outputs": ["output"],
+    },
+    # --- Phase 7.0: Flow control & utility nodes ---
+    "logic.switch": {
+        # 1 input + up to 10 output branches + 1 fallback
+        # out_0..out_9 are created on demand via __getattr__; we register
+        # the first two plus fallback as static defaults so the >> operator
+        # works without declaring rules first.
+        "inputs": ["input"],
+        "outputs": ["out_0", "out_1", "out_2", "out_3", "out_4",
+                    "out_5", "out_6", "out_7", "out_8", "out_9", "out_fallback"],
+    },
+    "parser.structured": {
+        "inputs": [],
+        "outputs": ["output"],
+    },
+    "code.python": {
+        "inputs": ["input"],
+        "outputs": ["output"],
+    },
+    "http.request": {
+        "inputs": ["input"],
         "outputs": ["output"],
     },
 }

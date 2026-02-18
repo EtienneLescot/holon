@@ -13,7 +13,8 @@ async def langchain_agent(
     user_prompt: str = "",
     tools: List[BaseTool] = None,
     memory: Any = None,
-) -> str:
+    output_parser: Any = None,
+) -> Any:
     """Run a LangChain agent.
     
     Args:
@@ -23,6 +24,9 @@ async def langchain_agent(
         user_prompt: Static user input from properties.
         tools: List of tools the agent can use.
         memory: Optional memory component.
+        output_parser: Optional structured output parser (parser.structured node).
+            When provided, its format instructions are appended to the system
+            prompt and the raw LLM output is parsed before returning.
     """
     if tools is None:
         tools = []
@@ -33,10 +37,19 @@ async def langchain_agent(
     if not llm:
         raise ValueError("LLM is required")
 
+    # Inject format instructions when a structured parser is attached
+    effective_system_prompt = system_prompt
+    if output_parser is not None:
+        try:
+            format_instructions = output_parser.get_format_instructions()
+            effective_system_prompt = f"{system_prompt}\n\n{format_instructions}"
+        except Exception:
+            pass  # Parser missing get_format_instructions — skip gracefully
+
     # For now, use a simple chain without tools (modern LangChain API)
     # This avoids deprecated initialize_agent and create_openai_functions_agent
     prompt = ChatPromptTemplate.from_messages([
-        ("system", system_prompt),
+        ("system", effective_system_prompt),
         ("human", "{input}"),
     ])
     
@@ -48,6 +61,16 @@ async def langchain_agent(
     
     # Extract text content
     if hasattr(response, "content"):
-        return response.content
+        raw_text = response.content
     else:
-        return str(response)
+        raw_text = str(response)
+
+    # Parse structured output when a parser is present
+    if output_parser is not None:
+        try:
+            return output_parser.parse(raw_text)
+        except Exception:
+            # Return raw text if parsing fails (prefer not to crash)
+            return raw_text
+
+    return raw_text

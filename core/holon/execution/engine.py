@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import sys
 from dataclasses import dataclass, field
@@ -11,6 +12,21 @@ from holon.domain.models import Graph, Node, Edge, DataEnvelope
 from holon.execution.ports import PortRegistry
 from holon.execution.resolver import SpecResolver
 from holon.execution.mapper import PortMapper
+
+# ---------------------------------------------------------------------------
+# Spec types that need to be *executed* (not just resolved as providers)
+# ---------------------------------------------------------------------------
+
+#: Spec node types that produce output by running logic at execution time.
+#: All other spec types (llm.model, trigger.*, memory.*, parser.structured, …)
+#: are pure providers — they are already resolved and stored on the port
+#: registry before execution begins.
+EXECUTABLE_SPEC_TYPES: frozenset[str] = frozenset({
+    "langchain.agent",
+    "logic.switch",
+    "code.python",
+    "http.request",
+})
 
 
 @dataclass
@@ -25,6 +41,8 @@ class ExecutionContext:
     error_node_id: str | None = None
     trigger_data: dict[str, Any] | None = None  # Initial data from trigger
     response_data: dict[str, Any] | None = None  # Response data for trigger response port
+    #: Optional reference to the loaded module namespace (used for inline_code nodes)
+    module_namespace: dict[str, Any] | None = None
 
 
 class ExecutionEngine:
@@ -158,9 +176,10 @@ class ExecutionEngine:
         """Build topological execution order for nodes.
         
         Strategy:
-        1. Spec nodes of type llm.model, memory, tools are "providers" (already resolved)
-        2. Spec nodes of type langchain.agent need to be executed (they consume inputs)
-        3. Use topological sort based on port dependencies
+        1. Provider spec nodes (llm.model, memory, parser.structured, …) are
+           already resolved — they are NOT added to the executable list.
+        2. Executable spec nodes (langchain.agent, logic.switch, code.python,
+           http.request) and inline_code nodes ARE executed in topological order.
         
         Returns:
             List of node IDs in execution order
@@ -168,15 +187,13 @@ class ExecutionEngine:
         # Find nodes that need execution
         executable = []
         for node in ctx.graph.nodes:
-            # Include inline_code nodes (legacy @node functions)
+            # Include inline_code nodes (@node functions)
             if node.kind == "inline_code":
                 executable.append(node.id)
-            
-            # Include langchain spec nodes (agents, chains, etc. that process data)
-            if node.kind == "spec" and node.node_type and node.node_type.startswith("langchain."):
+
+            # Include spec nodes that actively process data
+            if node.kind == "spec" and node.node_type in EXECUTABLE_SPEC_TYPES:
                 executable.append(node.id)
-            
-            # Other spec nodes (llm.model, trigger.*, memory, tools) are resolved but not executed
         
         # Simple topological sort: nodes with no dependencies first
         ordered = []
@@ -228,9 +245,22 @@ class ExecutionEngine:
                     "error": "Node not found in graph"
                 })
                 continue
-            
-            # Get inputs from connected ports
+
+            # ---- Dead-branch skip logic -----------------------------------------------
+            # If this node has no data arriving on any of its connected input ports
+            # AND it is not a langchain.agent (which may have side-effects / prompts),
+            # treat it as a dead branch (e.g. the non-activated branch of a Switch)
+            # and skip execution entirely.
             raw_inputs = ctx.port_registry.get_inputs_for_node(node_id)
+            if not raw_inputs and node.node_type not in ("langchain.agent", None):
+                sys.stderr.write(
+                    f"[ENGINE] Skipping {node_id} — no inputs (dead branch)\n"
+                )
+                sys.stderr.flush()
+                ctx.execution_trace.append({"node_id": node_id, "status": "skipped"})
+                continue
+            # ---------------------------------------------------------------------------
+            
             sys.stderr.write(f"[ENGINE] Node {node_id} raw inputs: {list(raw_inputs.keys())}\n")
             sys.stderr.flush()
             
@@ -240,16 +270,30 @@ class ExecutionEngine:
             sys.stderr.flush()
             
             try:
-                # Execute node based on kind and type
-                if node.kind == "spec" and node.node_type and node.node_type.startswith("langchain."):
-                    # Langchain spec nodes (agents, chains) need execution
+                # ---- Switch: handles its own port writes; skip generic output wrap ----
+                if node.node_type == "logic.switch":
+                    await self._execute_switch_node(ctx, node, mapped_inputs)
+                    ctx.node_outputs[node_id] = None
+                    ctx.execution_trace.append({
+                        "node_id": node_id,
+                        "status": "success",
+                        "error": None,
+                        "output": None,
+                    })
+                    sys.stderr.write(f"[ENGINE] Switch {node_id} done\n")
+                    sys.stderr.flush()
+                    continue  # Skip generic output wrapping
+
+                # ---- Standard execution path ------------------------------------------
+                if node.kind == "spec" and node.node_type == "langchain.agent":
                     output = await self._execute_agent_node(ctx, node, mapped_inputs)
+                elif node.kind == "spec" and node.node_type in EXECUTABLE_SPEC_TYPES:
+                    output = await self._execute_callable_node(ctx, node, mapped_inputs)
                 elif node.kind == "spec":
-                    # Other spec nodes (llm.model, trigger.*, etc.) are already resolved
+                    # Provider nodes (llm.model, trigger.*, memory.*, etc.) — already resolved
                     output = ctx.port_registry.get_value(node_id, "output")
                 elif node.kind == "inline_code":
-                    # Legacy inline code nodes or custom executables
-                    output = await self._execute_node(ctx, node, mapped_inputs)
+                    output = await self._execute_inline_code_node(ctx, node, mapped_inputs)
                 else:
                     sys.stderr.write(f"[ENGINE] Unknown node kind: {node.kind}\n")
                     sys.stderr.flush()
@@ -376,22 +420,135 @@ class ExecutionEngine:
         
         return mapped_inputs
     
-    async def _execute_node(self, ctx: ExecutionContext, node: Node, inputs: dict[str, Any]) -> Any:
-        """Execute a single inline_code node.
-        
-        For inline_code nodes, we look up the Python function and call it.
-        For spec nodes, they should be handled by specialized executors.
+    # ------------------------------------------------------------------
+    # Execution handlers
+    # ------------------------------------------------------------------
+
+    async def _execute_callable_node(
+        self, ctx: ExecutionContext, node: Node, inputs: dict[str, Any]
+    ) -> Any:
+        """Execute a spec node whose resolver returned an async callable.
+
+        Used for ``code.python`` and ``http.request`` — both resolvers return
+        ``async def execute(data) -> Any``.
         """
-        # Check if this is a langchain spec that needs execution
-        if node.kind == "spec" and node.node_type and node.node_type.startswith("langchain."):
-            return await self._execute_agent_node(ctx, node, inputs)
-        
-        # For other nodes, we'd need to look up the Python function
-        # For now, return a placeholder
-        sys.stderr.write(f"[ENGINE] Node {node.id} execution not yet implemented for kind={node.kind}\n")
+        resolved = ctx.resolver.get_cached(node.id)
+        if not resolved:
+            raise RuntimeError(f"Node {node.id} not resolved")
+
+        executor = resolved.runtime_object
+        data = _unwrap(inputs.get("input"))
+
+        sys.stderr.write(
+            f"[ENGINE] Callable node {node.id} ({node.node_type}) "
+            f"data type={type(data).__name__}\n"
+        )
         sys.stderr.flush()
-        return f"<executed {node.id}>"
+
+        if callable(executor):
+            timeout = getattr(executor, "__holon_timeout__", None)
+            if inspect.iscoroutinefunction(executor):
+                coro = executor(data)
+                if timeout:
+                    import asyncio
+                    return await asyncio.wait_for(coro, timeout=timeout)
+                return await coro
+            else:
+                return executor(data)
+        else:
+            raise RuntimeError(
+                f"Resolved object for {node.id} ({node.node_type}) is not callable. "
+                f"Got: {type(executor).__name__}"
+            )
+
+    async def _execute_inline_code_node(
+        self, ctx: ExecutionContext, node: Node, inputs: dict[str, Any]
+    ) -> Any:
+        """Execute a @node-decorated Python function (inline_code kind).
+
+        The function is retrieved from ``ctx.module_namespace`` which is
+        populated by the runner when it loads the workflow module.
+        """
+        if ctx.module_namespace is None:
+            sys.stderr.write(
+                f"[ENGINE] inline_code node {node.id}: module_namespace not set; "
+                f"returning placeholder\n"
+            )
+            sys.stderr.flush()
+            return f"<executed {node.id}>"
+
+        func = ctx.module_namespace.get(node.name)
+        if func is None:
+            raise RuntimeError(
+                f"inline_code node '{node.name}' not found in module namespace"
+            )
+
+        data = _unwrap(inputs.get("input")) if inputs else None
+
+        sys.stderr.write(
+            f"[ENGINE] Calling inline function '{node.name}' "
+            f"data type={type(data).__name__}\n"
+        )
+        sys.stderr.flush()
+
+        if inspect.iscoroutinefunction(func):
+            return await func(data)
+        else:
+            return func(data)
     
+    async def _execute_switch_node(
+        self, ctx: ExecutionContext, node: Node, inputs: dict[str, Any]
+    ) -> None:
+        """Evaluate Switch rules and write the data to the matching output port.
+
+        Writes directly to the port registry instead of returning an output,
+        because the Switch may activate any one of up to 10+1 ports.
+        """
+        from holon.library.logic_nodes import evaluate_rule
+        from holon.library.template import evaluate_expression
+
+        envelope = inputs.get("input")
+        content = _unwrap(envelope)
+
+        props = node.props or {}
+        input_expression: str = props.get("input_expression", "{{ data }}")
+        rules: list[dict] = props.get("rules", [])
+        fallback_port: str = props.get("fallback", "out_fallback")
+
+        # Evaluate the expression on the incoming content
+        ctx_data = content if isinstance(content, dict) else {"value": content}
+        evaluated = evaluate_expression(input_expression, ctx_data)
+
+        sys.stderr.write(
+            f"[SWITCH] {node.id}: expression={input_expression!r} "
+            f"evaluated={evaluated!r} ({type(evaluated).__name__})\n"
+        )
+        sys.stderr.flush()
+
+        # Test rules in order — first match wins
+        activated_port: str = fallback_port
+        for i, rule in enumerate(rules):
+            operator = rule.get("operator", "equals")
+            rule_value = rule.get("value")
+            out_port = rule.get("output", f"out_{i}")
+
+            if evaluate_rule(evaluated, operator, rule_value):
+                activated_port = out_port
+                sys.stderr.write(
+                    f"[SWITCH] Rule {i} matched ({operator}={rule_value!r}) "
+                    f"→ {activated_port}\n"
+                )
+                sys.stderr.flush()
+                break
+        else:
+            sys.stderr.write(
+                f"[SWITCH] No rule matched → fallback={fallback_port}\n"
+            )
+            sys.stderr.flush()
+
+        # Write the (unchanged) envelope to the activated output port
+        ctx.port_registry.set_value(node.id, activated_port, envelope)
+
     async def _execute_agent_node(self, ctx: ExecutionContext, node: Node, inputs: dict[str, Any]) -> Any:
         """Execute a langchain.agent spec node with port inputs."""
         sys.stderr.write(f"[ENGINE] Executing agent node: {node.id}\n")
@@ -405,15 +562,8 @@ class ExecutionEngine:
         agent_runner = resolved.runtime_object
         
         # Build agent call arguments from port inputs
-        # Expected ports: input, llm, tools, memory
-        agent_kwargs = {}
-
-        def _unwrap(value: Any) -> Any:
-            if isinstance(value, DataEnvelope):
-                return value.content
-            if isinstance(value, dict) and "content" in value:
-                return value["content"]
-            return value
+        # Expected ports: input, llm, tools, memory, parser
+        agent_kwargs: dict[str, Any] = {}
         
         # Get input text
         if "input" in inputs:
@@ -434,6 +584,10 @@ class ExecutionEngine:
         # Get memory from memory port
         if "memory" in inputs:
             agent_kwargs["memory"] = _unwrap(inputs["memory"])
+
+        # Get structured output parser from parser port (Phase 7.0)
+        if "parser" in inputs:
+            agent_kwargs["output_parser"] = _unwrap(inputs["parser"])
         
         sys.stderr.write(f"[ENGINE] Agent call args: {list(agent_kwargs.keys())}\n")
         sys.stderr.flush()
@@ -460,6 +614,15 @@ class ExecutionEngine:
             if node.id == node_id:
                 return node
         return None
+
+
+def _unwrap(value: Any) -> Any:
+    """Unwrap a DataEnvelope or envelope dict to its raw content."""
+    if isinstance(value, DataEnvelope):
+        return value.content
+    if isinstance(value, dict) and "content" in value:
+        return value["content"]
+    return value
 
 
 def _serialize_output(value: Any) -> Any:
